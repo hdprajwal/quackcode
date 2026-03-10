@@ -1,4 +1,4 @@
-export type AIProvider = 'anthropic' | 'openai' | 'gemini'
+export type AIProvider = 'anthropic' | 'openai' | 'gemini' | 'opencode'
 
 export interface AIModel {
   id: string

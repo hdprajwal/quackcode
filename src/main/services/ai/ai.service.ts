@@ -2,6 +2,7 @@ import type { AIModel, AIProvider } from '@shared/types'
 import type { AIProviderInterface } from './provider.interface'
 import { anthropicProvider, AnthropicProvider } from './anthropic.provider'
 import { geminiProvider } from './gemini.provider'
+import { opencodeProvider } from './opencode.provider'
 import { openaiProvider } from './openai.provider'
 import { settingsService } from '../settings.service'
 import { readClaudeCodeToken, isTokenExpired } from './claude-credentials'
@@ -10,7 +11,8 @@ export class AIService {
   private providers: Record<AIProvider, AIProviderInterface> = {
     anthropic: anthropicProvider,
     openai: openaiProvider,
-    gemini: geminiProvider
+    gemini: geminiProvider,
+    opencode: opencodeProvider
   }
 
   getProvider(provider: AIProvider): AIProviderInterface {
@@ -21,8 +23,10 @@ export class AIService {
       const config = settingsService.getProvider('anthropic')
       if (config.authMode === 'claudePro') {
         const token = readClaudeCodeToken()
-        if (!token) throw new Error('Claude Code credentials not found. Open Claude Code to sign in.')
-        if (isTokenExpired(token.expiresAt)) throw new Error('Claude Code session expired. Open Claude Code to refresh.')
+        if (!token)
+          throw new Error('Claude Code credentials not found. Open Claude Code to sign in.')
+        if (isTokenExpired(token.expiresAt))
+          throw new Error('Claude Code session expired. Open Claude Code to refresh.')
         p.setAuthToken(token.accessToken)
       } else if (config.apiKey) {
         p.setApiKey(config.apiKey)
@@ -49,6 +53,12 @@ export class AIService {
     const p = this.providers[provider]
     if (!p) return false
     return p.verifyApiKey(apiKey)
+  }
+
+  disposeThread(threadId: string): void {
+    for (const provider of Object.values(this.providers)) {
+      provider.disposeThread?.(threadId)
+    }
   }
 }
 

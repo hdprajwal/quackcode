@@ -16,13 +16,14 @@ export function SettingsModal(): React.JSX.Element {
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>Configure API keys and preferences</DialogDescription>
+          <DialogDescription>Configure provider credentials and preferences</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6">
           <ProviderSettings provider="anthropic" label="Anthropic (Claude)" />
           <ProviderSettings provider="openai" label="OpenAI" />
           <ProviderSettings provider="gemini" label="Google (Gemini)" />
+          <ProviderSettings provider="opencode" label="OpenCode ACP" />
         </div>
       </DialogContent>
     </Dialog>

@@ -34,8 +34,14 @@ export interface AIProviderInterface {
     tools: ToolDefinition[],
     systemPrompt: string,
     callbacks: StreamCallbacks,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    context?: {
+      threadId?: string
+      cwd?: string
+    }
   ): Promise<ChatMessage | null>
 
   verifyApiKey(apiKey: string): Promise<boolean>
+
+  disposeThread?(threadId: string): Promise<void> | void
 }

@@ -27,8 +27,16 @@ export class GeminiProvider implements AIProviderInterface {
       { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'gemini' },
       { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', provider: 'gemini' },
       { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', provider: 'gemini' },
-      { id: 'gemini-2.0-flash-lite-preview-02-05', name: 'Gemini 2.0 Flash Lite Preview', provider: 'gemini' },
-      { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash Lite Preview', provider: 'gemini' }
+      {
+        id: 'gemini-2.0-flash-lite-preview-02-05',
+        name: 'Gemini 2.0 Flash Lite Preview',
+        provider: 'gemini'
+      },
+      {
+        id: 'gemini-3.1-flash-lite-preview',
+        name: 'Gemini 3.1 Flash Lite Preview',
+        provider: 'gemini'
+      }
     ]
   }
 
@@ -75,8 +83,7 @@ export class GeminiProvider implements AIProviderInterface {
               fullText && part.text.startsWith(fullText)
                 ? part.text.slice(fullText.length)
                 : part.text
-            fullText =
-              fullText && part.text.startsWith(fullText) ? part.text : fullText + part.text
+            fullText = fullText && part.text.startsWith(fullText) ? part.text : fullText + part.text
             if (delta) callbacks.onText(delta)
           }
 

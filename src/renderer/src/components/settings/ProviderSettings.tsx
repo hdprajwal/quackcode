@@ -22,17 +22,15 @@ export function ProviderSettings({ provider, label }: ProviderSettingsProps): Re
   const [showKey, setShowKey] = useState(false)
   const [verifying, setVerifying] = useState(false)
   const [verified, setVerified] = useState<boolean | null>(null)
-  const [authMode, setAuthMode] = useState<'apiKey' | 'claudePro'>(
-    config?.authMode ?? 'apiKey'
-  )
+  const [authMode, setAuthMode] = useState<'apiKey' | 'claudePro'>(config?.authMode ?? 'apiKey')
   const [connectLoading, setConnectLoading] = useState(false)
   const [connectError, setConnectError] = useState<string | null>(null)
   const [proVerifying, setProVerifying] = useState(false)
   const [proVerified, setProVerified] = useState<boolean | null>(null)
 
   const logoProvider = provider === 'gemini' ? 'google' : provider
-  const isClaudeProConnected =
-    provider === 'anthropic' && config?.authMode === 'claudePro' && !!config?.claudeProToken
+  const isClaudeProConnected = provider === 'anthropic' && config?.authMode === 'claudePro'
+  const isOpencode = provider === 'opencode'
 
   const handleSave = async (): Promise<void> => {
     await updateProvider(provider, { apiKey, enabled: !!apiKey })
@@ -109,7 +107,7 @@ export function ProviderSettings({ provider, label }: ProviderSettingsProps): Re
                 setApiKey(e.target.value)
                 setVerified(null)
               }}
-              placeholder="API Key"
+              placeholder={isOpencode ? 'Optional OPENCODE_API_KEY' : 'API Key'}
               className="pr-8"
             />
             <button
@@ -120,7 +118,7 @@ export function ProviderSettings({ provider, label }: ProviderSettingsProps): Re
               {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
           </div>
-          <Button size="sm" onClick={handleVerify} disabled={!apiKey || verifying}>
+          <Button size="sm" onClick={handleVerify} disabled={(!apiKey && !isOpencode) || verifying}>
             {verifying ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : verified === true ? (
@@ -132,6 +130,12 @@ export function ProviderSettings({ provider, label }: ProviderSettingsProps): Re
             )}
           </Button>
         </div>
+        {isOpencode && (
+          <p className="text-xs text-muted-foreground">
+            Uses your local <code className="font-mono">opencode acp</code> install. The API key is
+            optional when OpenCode is already authenticated.
+          </p>
+        )}
         {verified === false && <p className="text-xs text-destructive">Invalid API key</p>}
         {verified === true && <p className="text-xs text-green-500">API key verified and saved</p>}
       </div>

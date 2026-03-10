@@ -7,6 +7,7 @@ interface PendingMessage {
   content: string
   toolCalls: ToolCall[]
   toolResults: ToolResult[]
+  toolCallBuffers: Record<string, string>
 }
 
 interface ThreadStore {
@@ -75,13 +76,13 @@ export const useThreadStore = create<ThreadStore>((set, get) => ({
     }
 
     // Check for message ID change (new turn)
-    // We ignore tool_result chunks for ID check because they have unique IDs 
+    // We ignore tool_result chunks for ID check because they have unique IDs
     // but should be merged into the current assistant message in this frontend implementation
     if (
-      chunk.type !== 'tool_result' && 
+      chunk.type !== 'tool_result' &&
       chunk.type !== 'done' &&
-      state.pendingMessage && 
-      chunk.messageId && 
+      state.pendingMessage &&
+      chunk.messageId &&
       state.pendingMessage.id !== chunk.messageId
     ) {
       commitPending(state)
@@ -97,7 +98,8 @@ export const useThreadStore = create<ThreadStore>((set, get) => ({
           role: 'assistant' as const,
           content: '',
           toolCalls: [],
-          toolResults: []
+          toolResults: [],
+          toolCallBuffers: {}
         }
         set({
           pendingMessage: { ...pending, content: pending.content + (chunk.content || '') },
@@ -111,24 +113,77 @@ export const useThreadStore = create<ThreadStore>((set, get) => ({
           role: 'assistant' as const,
           content: '',
           toolCalls: [],
-          toolResults: []
+          toolResults: [],
+          toolCallBuffers: {}
         }
         if (chunk.toolCall) {
+          const initialArgs = chunk.toolCall.arguments || {}
           set({
             pendingMessage: {
               ...pending,
+              toolCallBuffers: {
+                ...pending.toolCallBuffers,
+                [chunk.toolCall.id!]: JSON.stringify(initialArgs)
+              },
               toolCalls: [
-                ...pending.toolCalls,
+                ...pending.toolCalls.filter((toolCall) => toolCall.id !== chunk.toolCall!.id),
                 {
                   id: chunk.toolCall.id!,
                   name: chunk.toolCall.name!,
-                  arguments: chunk.toolCall.arguments || {}
+                  arguments: initialArgs
                 }
               ]
             },
             isStreaming: true
           })
         }
+        break
+      }
+      case 'tool_call_delta': {
+        const pending = currentState.pendingMessage || {
+          id: chunk.messageId,
+          role: 'assistant' as const,
+          content: '',
+          toolCalls: [],
+          toolResults: [],
+          toolCallBuffers: {}
+        }
+        const toolCallId = chunk.toolCall?.id
+        if (!toolCallId) break
+
+        const chunkContent = chunk.content || ''
+        let nextBuffer = `${pending.toolCallBuffers[toolCallId] || ''}${chunkContent}`
+        try {
+          const standalone = JSON.parse(chunkContent) as Record<string, unknown>
+          if (standalone && typeof standalone === 'object' && !Array.isArray(standalone)) {
+            nextBuffer = chunkContent
+          }
+        } catch {
+          // Keep accumulating partial JSON deltas.
+        }
+
+        let parsedArguments: Record<string, unknown> | null = null
+        try {
+          parsedArguments = JSON.parse(nextBuffer) as Record<string, unknown>
+        } catch {
+          parsedArguments = null
+        }
+
+        set({
+          pendingMessage: {
+            ...pending,
+            toolCallBuffers: {
+              ...pending.toolCallBuffers,
+              [toolCallId]: nextBuffer
+            },
+            toolCalls: pending.toolCalls.map((toolCall) =>
+              toolCall.id === toolCallId && parsedArguments
+                ? { ...toolCall, arguments: parsedArguments }
+                : toolCall
+            )
+          },
+          isStreaming: true
+        })
         break
       }
       case 'tool_result': {
@@ -154,7 +209,8 @@ export const useThreadStore = create<ThreadStore>((set, get) => ({
           role: 'assistant' as const,
           content: '',
           toolCalls: [],
-          toolResults: []
+          toolResults: [],
+          toolCallBuffers: {}
         }
         set({
           pendingMessage: {

@@ -15,7 +15,8 @@ export class AgentService {
       params
 
     // Determine effective project path
-    const effectivePath = environmentMode === 'worktree' && worktreePath ? worktreePath : projectPath
+    const effectivePath =
+      environmentMode === 'worktree' && worktreePath ? worktreePath : projectPath
 
     // Save user message
     threadService.createMessage({
@@ -87,7 +88,8 @@ export class AgentService {
           toolDefinitions,
           systemPrompt,
           callbacks,
-          abortController.signal
+          abortController.signal,
+          { threadId, cwd: effectivePath }
         )
 
         if (!result) break // Cancelled or error

@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron'
 import { threadService } from '../services/thread.service'
+import { aiService } from '../services/ai/ai.service'
 import type { CreateThreadParams } from '@shared/types'
 
 export function registerThreadIpc(): void {
@@ -20,6 +21,7 @@ export function registerThreadIpc(): void {
   })
 
   ipcMain.handle('thread:delete', (_event, threadId: string) => {
+    aiService.disposeThread(threadId)
     threadService.deleteThread(threadId)
   })
 

@@ -22,7 +22,8 @@ import type { AIModel, AIProvider } from '@shared/types'
 const providerLabels: Record<AIProvider, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
-  gemini: 'Gemini'
+  gemini: 'Gemini',
+  opencode: 'OpenCode'
 }
 
 function getProviderLogo(provider: AIProvider): string {

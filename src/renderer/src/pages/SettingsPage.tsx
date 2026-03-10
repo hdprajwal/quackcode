@@ -9,12 +9,15 @@ import { cn } from '@renderer/lib/utils'
 
 type Section = 'providers' | 'theme' | 'editor'
 
-const SECTIONS: { id: Section; label: string; icon: React.ComponentType<{ className?: string }> }[] =
-  [
-    { id: 'providers', label: 'Providers', icon: Cpu },
-    { id: 'theme', label: 'Theme', icon: Palette },
-    { id: 'editor', label: 'Editor', icon: Code2 }
-  ]
+const SECTIONS: {
+  id: Section
+  label: string
+  icon: React.ComponentType<{ className?: string }>
+}[] = [
+  { id: 'providers', label: 'Providers', icon: Cpu },
+  { id: 'theme', label: 'Theme', icon: Palette },
+  { id: 'editor', label: 'Editor', icon: Code2 }
+]
 
 export function SettingsPage(): React.JSX.Element {
   const router = useRouter()
@@ -59,12 +62,13 @@ export function SettingsPage(): React.JSX.Element {
               <section>
                 <h2 className="mb-1 text-base font-semibold">AI Providers</h2>
                 <p className="mb-6 text-sm text-muted-foreground">
-                  Configure API keys for each provider
+                  Configure credentials and connection options for each provider
                 </p>
                 <div className="space-y-6">
                   <ProviderSettings provider="anthropic" label="Anthropic (Claude)" />
                   <ProviderSettings provider="openai" label="OpenAI" />
                   <ProviderSettings provider="gemini" label="Google (Gemini)" />
+                  <ProviderSettings provider="opencode" label="OpenCode ACP" />
                 </div>
               </section>
             )}
