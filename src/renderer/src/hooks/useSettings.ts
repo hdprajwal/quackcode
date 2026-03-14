@@ -34,10 +34,14 @@ export function useSettings(): {
   const updateProvider = useCallback(
     async (provider: AIProvider, config: Partial<ProviderConfig>) => {
       await invoke('settings:setProvider', { provider, config })
-      const updated = await invoke<AppSettings>('settings:get')
+      const [updated, models] = await Promise.all([
+        invoke<AppSettings>('settings:get'),
+        invoke<AIModel[]>('ai:models')
+      ])
       setSettings(updated)
+      setModels(models)
     },
-    [setSettings]
+    [setModels, setSettings]
   )
 
   const verifyApiKey = useCallback(async (provider: AIProvider, apiKey: string) => {

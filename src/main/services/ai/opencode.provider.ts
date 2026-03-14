@@ -64,14 +64,40 @@ export class OpencodeProvider implements AIProviderInterface {
     }
 
     try {
-      const session = this.runBootstrapSession()
-      const models = this.extractModels(session)
+      const models = this.loadModelsFromCli()
       this.modelsCache = models.length > 0 ? models : FALLBACK_MODELS
     } catch {
       this.modelsCache = FALLBACK_MODELS
     }
 
     return this.modelsCache
+  }
+
+  private loadModelsFromCli(): AIModel[] {
+    const result = spawnSync('opencode', ['models'], {
+      env: this.getEnv(),
+      encoding: 'utf8',
+      timeout: 10000
+    })
+
+    if (result.error) {
+      throw result.error
+    }
+
+    const output = result.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+
+    if (output.length === 0) {
+      throw new Error(result.stderr || 'OpenCode models command returned no models')
+    }
+
+    return output.map((modelId) => ({
+      id: modelId,
+      name: this.formatModelName(modelId),
+      provider: 'opencode' as const
+    }))
   }
 
   async sendMessage(
@@ -255,22 +281,23 @@ export class OpencodeProvider implements AIProviderInterface {
       .join(`${EOL}${EOL}`)
   }
 
-  private extractModels(session: Record<string, unknown>): AIModel[] {
-    const models = session.models
-    if (!models || typeof models !== 'object' || !('availableModels' in models)) {
-      return FALLBACK_MODELS
+  private formatModelName(modelId: string): string {
+    const [, provider, rawName] = modelId.match(/^([^/]+)\/(.+)$/) ?? []
+    if (!provider || !rawName) {
+      return modelId
     }
 
-    const available = Array.isArray(models.availableModels) ? models.availableModels : []
-    return available
-      .map<AIModel | null>((entry) => {
-        if (!entry || typeof entry !== 'object') return null
-        const id = 'modelId' in entry ? entry.modelId : undefined
-        const name = 'name' in entry ? entry.name : undefined
-        if (typeof id !== 'string' || typeof name !== 'string') return null
-        return { id, name, provider: 'opencode' as const }
+    const providerName = provider.charAt(0).toUpperCase() + provider.slice(1)
+    const modelName = rawName
+      .split(/[-_]+/)
+      .map((segment) => {
+        if (/^\d+(?:\.\d+)?$/.test(segment)) return segment
+        if (segment.length <= 3) return segment.toUpperCase()
+        return segment.charAt(0).toUpperCase() + segment.slice(1)
       })
-      .filter((entry): entry is AIModel => entry !== null)
+      .join(' ')
+
+    return `${providerName}/${modelName}`
   }
 
   private getEnv(apiKey = this.apiKey): NodeJS.ProcessEnv {
@@ -278,59 +305,6 @@ export class OpencodeProvider implements AIProviderInterface {
       ...process.env,
       ...(apiKey ? { OPENCODE_API_KEY: apiKey } : {})
     }
-  }
-
-  private runBootstrapSession(): Record<string, unknown> {
-    const initialize = JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'initialize',
-      params: {
-        protocolVersion: 1,
-        clientCapabilities: {
-          fs: { readTextFile: false, writeTextFile: false },
-          terminal: false
-        },
-        clientInfo: {
-          name: 'quackcode',
-          title: 'QuackCode',
-          version: '1.0.0'
-        }
-      }
-    })
-    const sessionNew = JSON.stringify({
-      jsonrpc: '2.0',
-      id: 2,
-      method: 'session/new',
-      params: {
-        cwd: process.cwd(),
-        mcpServers: []
-      }
-    })
-
-    const result = spawnSync('opencode', ['acp'], {
-      env: this.getEnv(),
-      input: `${initialize}${EOL}${sessionNew}${EOL}`,
-      encoding: 'utf8',
-      timeout: 10000
-    })
-
-    if (result.error) {
-      throw result.error
-    }
-
-    const response = result.stdout
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as JsonRpcMessage)
-      .find((message) => message.id === 2)
-
-    if (!response?.result) {
-      throw new Error(result.stderr || 'OpenCode session bootstrap failed')
-    }
-
-    return response.result
   }
 
   private writeMessage(

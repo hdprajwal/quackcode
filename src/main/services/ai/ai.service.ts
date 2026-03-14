@@ -43,10 +43,31 @@ export class AIService {
 
   listAllModels(): AIModel[] {
     const models: AIModel[] = []
-    for (const provider of Object.values(this.providers)) {
+    for (const [providerId, provider] of Object.entries(this.providers) as Array<
+      [AIProvider, AIProviderInterface]
+    >) {
+      this.configureProviderForModelListing(providerId, provider)
       models.push(...provider.listModels())
     }
     return models
+  }
+
+  private configureProviderForModelListing(
+    providerId: AIProvider,
+    provider: AIProviderInterface
+  ): void {
+    if (providerId === 'anthropic' && provider instanceof AnthropicProvider) {
+      const config = settingsService.getProvider('anthropic')
+      if (config.authMode === 'claudePro') {
+        const token = readClaudeCodeToken()
+        if (token && !isTokenExpired(token.expiresAt)) {
+          provider.setAuthToken(token.accessToken)
+        }
+        return
+      }
+    }
+
+    provider.setApiKey(settingsService.getApiKey(providerId))
   }
 
   async verifyApiKey(provider: AIProvider, apiKey: string): Promise<boolean> {
