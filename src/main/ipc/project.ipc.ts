@@ -27,7 +27,11 @@ export function registerProjectIpc(): void {
   ipcMain.handle('project:delete', (_event, projectId: string) => {
     const threadIds = projectService.deleteProject(projectId)
     for (const threadId of threadIds) {
-      aiService.disposeThread(threadId)
+      try {
+        aiService.disposeThread(threadId)
+      } catch (error) {
+        console.error('Failed to dispose AI thread after project deletion', { threadId, error })
+      }
     }
   })
 }

@@ -20,12 +20,12 @@ export function useThread(): {
     if (!project) return
     const threads = await invoke<Thread[]>('thread:list', project.id)
     setThreads(threads)
-  }, [project])
+  }, [project, setThreads])
 
   const loadAllThreads = useCallback(async () => {
     const threads = await invoke<Thread[]>('thread:listAll')
     setThreads(threads)
-  }, [])
+  }, [setThreads])
 
   const createThread = useCallback(
     async (projectId?: string) => {
@@ -46,33 +46,49 @@ export function useThread(): {
         useProjectStore.getState().setProject(targetProject)
       }
 
-      addThread(thread)
+      const currentThreads = useThreadStore.getState().threads
+
+      if (currentThreads.some((currentThread) => currentThread.id === thread.id)) {
+        setThreads([
+          thread,
+          ...currentThreads.filter((currentThread) => currentThread.id !== thread.id)
+        ])
+      } else {
+        addThread(thread)
+      }
+
       setActiveThread(thread.id)
       setMessages([])
       return thread
     },
-    [project, selectedProvider, selectedModel]
+    [addThread, project, selectedProvider, selectedModel, setActiveThread, setMessages, setThreads]
   )
 
-  const deleteThread = useCallback(async (threadId: string) => {
-    await invoke('thread:delete', threadId)
-    removeThread(threadId)
-  }, [])
+  const deleteThread = useCallback(
+    async (threadId: string) => {
+      await invoke('thread:delete', threadId)
+      removeThread(threadId)
+    },
+    [removeThread]
+  )
 
-  const switchThread = useCallback(async (threadId: string) => {
-    setActiveThread(threadId)
-    const thread = useThreadStore.getState().threads.find((t) => t.id === threadId)
-    if (thread) {
-      const project = useProjectStore
-        .getState()
-        .recentProjects.find((p) => p.id === thread.projectId)
-      if (project) {
-        useProjectStore.getState().setProject(project)
+  const switchThread = useCallback(
+    async (threadId: string) => {
+      setActiveThread(threadId)
+      const thread = useThreadStore.getState().threads.find((t) => t.id === threadId)
+      if (thread) {
+        const project = useProjectStore
+          .getState()
+          .recentProjects.find((p) => p.id === thread.projectId)
+        if (project) {
+          useProjectStore.getState().setProject(project)
+        }
       }
-    }
-    const msgs = await invoke<import('@shared/types').Message[]>('message:list', threadId)
-    setMessages(msgs)
-  }, [])
+      const msgs = await invoke<import('@shared/types').Message[]>('message:list', threadId)
+      setMessages(msgs)
+    },
+    [setActiveThread, setMessages]
+  )
 
   return { createThread, deleteThread, switchThread, loadThreads, loadAllThreads }
 }

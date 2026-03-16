@@ -11,12 +11,14 @@ export class ThreadService {
          FROM threads t
          LEFT JOIN messages m ON m.thread_id = t.id
          WHERE t.project_id = ?
+           AND t.provider = ?
+           AND t.model = ?
          GROUP BY t.id
          HAVING COUNT(m.id) = 0
          ORDER BY t.updated_at DESC
          LIMIT 1`
       )
-      .get(params.projectId) as Record<string, string> | undefined
+      .get(params.projectId, params.provider, params.model) as Record<string, string> | undefined
 
     if (existingEmptyThread) {
       return this.toThread(existingEmptyThread)

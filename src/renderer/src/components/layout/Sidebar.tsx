@@ -41,7 +41,6 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuAction,
@@ -50,7 +49,6 @@ import {
   SidebarMenuSub,
   SidebarSeparator
 } from '@renderer/components/ui/sidebar'
-import { cn } from '@renderer/lib/utils'
 
 export function Sidebar(): React.JSX.Element {
   const { sidebarOpen } = useUIStore()
@@ -80,18 +78,6 @@ export function Sidebar(): React.JSX.Element {
     loadAllThreads()
   }, [loadAllThreads])
 
-  useEffect(() => {
-    setExpandedProjects((prev) => {
-      const next = { ...prev }
-      for (const project of projects) {
-        if (next[project.id] === undefined) {
-          next[project.id] = true
-        }
-      }
-      return next
-    })
-  }, [projects])
-
   const groupedThreads = useMemo(() => {
     const groups = new Map<string, Thread[]>()
     for (const thread of threads) {
@@ -102,11 +88,28 @@ export function Sidebar(): React.JSX.Element {
     return groups
   }, [threads])
 
-  const toggleProject = (projectId: string) => {
-    setExpandedProjects((prev) => ({ ...prev, [projectId]: !prev[projectId] }))
+  const projectExpansionState = useMemo(() => {
+    return Object.fromEntries(
+      projects.map((project) => [project.id, expandedProjects[project.id] ?? true])
+    )
+  }, [expandedProjects, projects])
+
+  const toggleProject = (projectId: string): void => {
+    setExpandedProjects((prev) => ({
+      ...prev,
+      [projectId]: prev[projectId] === undefined ? false : !prev[projectId]
+    }))
   }
 
-  const handleProjectClick = (project: Project) => {
+  const handleProjectClick = (project: Project): void => {
+    const state = useThreadStore.getState()
+    const activeThread = state.threads.find((thread) => thread.id === state.activeThreadId)
+
+    if (activeThread?.projectId !== project.id) {
+      setActiveThread(null)
+      setMessages([])
+    }
+
     setProject(project)
     setExpandedProjects((prev) => ({ ...prev, [project.id]: true }))
   }
@@ -157,157 +160,155 @@ export function Sidebar(): React.JSX.Element {
 
   return (
     <>
-      <SidebarShell
-        className={cn(sidebarOpen ? 'w-[306px] min-w-[306px]' : 'w-0 min-w-0 overflow-hidden')}
-      >
-        <SidebarHeader className="drag-region flex flex-row h-12 items-center justify-between border-b border-border px-3">
-          <div className="no-drag text-[15px] font-semibold tracking-[-0.02em] text-white/92">
-            QuackCode
-          </div>
-          <div className="no-drag flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="text-white/45 hover:bg-white/6 hover:text-white"
-              onClick={() => navigate({ to: '/settings' })}
-              aria-label="Open settings"
-            >
-              <Settings className="h-4 w-4" />
-            </Button>
-          </div>
-        </SidebarHeader>
-        <SidebarContent>
-          <SidebarGroup className="px-2 py-3">
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton onClick={() => setCreateThreadDialogOpen(true)}>
-                    <SquarePen className="h-4 w-4" />
-                    <span>Add Thread</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                <SidebarMenuItem>
-                  <SidebarMenuButton disabled>
-                    <Clock className="h-4 w-4" />
-                    <span>Automations</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                <SidebarMenuItem>
-                  <SidebarMenuButton disabled>
-                    <Grid2X2Plus className="h-4 w-4" />
-                    <span>Skills</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+      {sidebarOpen ? (
+        <SidebarShell className="w-[306px] min-w-[306px]">
+          <SidebarHeader className="drag-region flex flex-row h-12 items-center justify-between border-b border-border px-3">
+            <div className="no-drag text-[15px] font-semibold tracking-[-0.02em] text-white/92">
+              QuackCode
+            </div>
+            <div className="no-drag flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-white/45 hover:bg-white/6 hover:text-white"
+                onClick={() => navigate({ to: '/settings' })}
+                aria-label="Open settings"
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
+            </div>
+          </SidebarHeader>
+          <SidebarContent>
+            <SidebarGroup className="px-2 py-3">
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton onClick={() => setCreateThreadDialogOpen(true)}>
+                      <SquarePen className="h-4 w-4" />
+                      <span>Add Thread</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton disabled>
+                      <Clock className="h-4 w-4" />
+                      <span>Automations</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton disabled>
+                      <Grid2X2Plus className="h-4 w-4" />
+                      <span>Skills</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
 
-          <SidebarSeparator />
+            <SidebarSeparator />
 
-          <ScrollArea className="flex-1 px-2 ">
-            <SidebarGroup>
-              <SidebarGroupContent className="pt-2">
-                <SidebarMenu className="gap-2">
-                  {projects.map((project) => {
-                    const projectThreads = groupedThreads.get(project.id) ?? []
-                    const isExpanded = expandedProjects[project.id]
+            <ScrollArea className="flex-1 px-2 ">
+              <SidebarGroup>
+                <SidebarGroupContent className="pt-2">
+                  <SidebarMenu className="gap-2">
+                    {projects.map((project) => {
+                      const projectThreads = groupedThreads.get(project.id) ?? []
+                      const isExpanded = projectExpansionState[project.id]
 
-                    return (
-                      <SidebarMenuItem key={project.id} className="group/project">
-                        <div className="flex items-center gap-1">
-                          <SidebarMenuAction
-                            className="size-6"
-                            onClick={() => toggleProject(project.id)}
-                            aria-label={
-                              isExpanded ? `Collapse ${project.name}` : `Expand ${project.name}`
-                            }
-                          >
-                            {isExpanded ? (
-                              <ChevronDown className="h-3.5 w-3.5" />
-                            ) : (
-                              <ChevronRight className="h-3.5 w-3.5" />
-                            )}
-                          </SidebarMenuAction>
+                      return (
+                        <SidebarMenuItem key={project.id} className="group/project">
+                          <div className="flex items-center gap-1">
+                            <SidebarMenuAction
+                              className="size-6"
+                              onClick={() => toggleProject(project.id)}
+                              aria-label={
+                                isExpanded ? `Collapse ${project.name}` : `Expand ${project.name}`
+                              }
+                            >
+                              {isExpanded ? (
+                                <ChevronDown className="h-3.5 w-3.5" />
+                              ) : (
+                                <ChevronRight className="h-3.5 w-3.5" />
+                              )}
+                            </SidebarMenuAction>
 
-                          <SidebarMenuButton
-                            variant="ghost"
-                            className="min-w-0 flex-1 rounded-md px-2"
-                            onClick={() => handleProjectClick(project)}
-                            tooltip={project.path}
-                          >
-                            <span className="truncate font-semibold tracking-[-0.02em] text-white/92">
-                              {project.name}
-                            </span>
-                          </SidebarMenuButton>
+                            <SidebarMenuButton
+                              variant="ghost"
+                              className="min-w-0 flex-1 rounded-md px-2"
+                              onClick={() => handleProjectClick(project)}
+                              tooltip={project.path}
+                            >
+                              <span className="truncate font-semibold tracking-[-0.02em] text-white/92">
+                                {project.name}
+                              </span>
+                            </SidebarMenuButton>
 
-                          <DropdownMenu>
-                            <DropdownMenuTrigger
-                              children={
+                            <DropdownMenu>
+                              <DropdownMenuTrigger>
                                 <SidebarMenuAction
                                   className="text-white/0 group-hover/project:text-white/35"
                                   aria-label={`Open ${project.name} menu`}
                                 >
                                   <MoreHorizontal className="h-3.5 w-3.5" />
                                 </SidebarMenuAction>
-                              }
-                            />
-                            <DropdownMenuContent
-                              align="end"
-                              className="w-44 border-white/10 bg-[#1f1f1d] text-white shadow-lg ring-white/10"
-                            >
-                              <DropdownMenuItem
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  void handleCreateThread(project)
-                                }}
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent
+                                align="end"
+                                className="w-44 border-white/10 bg-[#1f1f1d] text-white shadow-lg ring-white/10"
                               >
-                                <MessageSquarePlus className="h-3.5 w-3.5" />
-                                New thread
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                variant="destructive"
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  setProjectToDelete(project)
-                                }}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                                Delete project
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
+                                <DropdownMenuItem
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    void handleCreateThread(project)
+                                  }}
+                                >
+                                  <MessageSquarePlus className="h-3.5 w-3.5" />
+                                  New thread
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  variant="destructive"
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    setProjectToDelete(project)
+                                  }}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                  Delete project
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
 
-                        {isExpanded && (
-                          <SidebarMenuSub className="mt-1">
-                            {projectThreads.length > 0 ? (
-                              projectThreads.map((thread) => (
-                                <ThreadItem key={thread.id} thread={thread} />
-                              ))
-                            ) : (
-                              <li className="px-2 py-2 text-sm text-white/30">No threads yet</li>
-                            )}
-                          </SidebarMenuSub>
-                        )}
-                      </SidebarMenuItem>
-                    )
-                  })}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          </ScrollArea>
-        </SidebarContent>
-        <SidebarFooter className="p-3">
-          <Button
-            variant="ghost"
-            className="flex w-full items-center justify-start gap-2 py-2 text-sm text-muted-foreground hover:text-foreground"
-            onClick={handleAddProject}
-          >
-            <FolderPlus className="h-4 w-4" />
-            Add project
-          </Button>
-        </SidebarFooter>
-      </SidebarShell>
+                          {isExpanded && (
+                            <SidebarMenuSub className="mt-1">
+                              {projectThreads.length > 0 ? (
+                                projectThreads.map((thread) => (
+                                  <ThreadItem key={thread.id} thread={thread} />
+                                ))
+                              ) : (
+                                <li className="px-2 py-2 text-sm text-white/30">No threads yet</li>
+                              )}
+                            </SidebarMenuSub>
+                          )}
+                        </SidebarMenuItem>
+                      )
+                    })}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            </ScrollArea>
+          </SidebarContent>
+          <SidebarFooter className="p-3">
+            <Button
+              variant="ghost"
+              className="flex w-full items-center justify-start gap-2 py-2 text-sm text-muted-foreground hover:text-foreground"
+              onClick={handleAddProject}
+            >
+              <FolderPlus className="h-4 w-4" />
+              Add project
+            </Button>
+          </SidebarFooter>
+        </SidebarShell>
+      ) : null}
 
       <Dialog open={createThreadDialogOpen} onOpenChange={setCreateThreadDialogOpen}>
         <DialogContent className="max-w-md">

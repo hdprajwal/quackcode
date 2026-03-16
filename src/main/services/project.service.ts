@@ -54,13 +54,19 @@ export class ProjectService {
 
   deleteProject(id: string): string[] {
     const db = getDatabase()
-    const threadRows = db.prepare('SELECT id FROM threads WHERE project_id = ?').all(id) as Array<{
-      id: string
-    }>
+    const tx = db.transaction((projectId: string) => {
+      const threadRows = db
+        .prepare('SELECT id FROM threads WHERE project_id = ?')
+        .all(projectId) as Array<{
+        id: string
+      }>
 
-    db.prepare('DELETE FROM projects WHERE id = ?').run(id)
+      db.prepare('DELETE FROM projects WHERE id = ?').run(projectId)
 
-    return threadRows.map((thread) => thread.id)
+      return threadRows.map((thread) => thread.id)
+    })
+
+    return tx(id)
   }
 
   private toProject(row: Record<string, string>): Project {
