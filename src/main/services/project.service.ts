@@ -37,9 +37,10 @@ export class ProjectService {
 
   listProjects(): Project[] {
     const db = getDatabase()
-    const rows = db
-      .prepare('SELECT * FROM projects ORDER BY last_opened_at DESC')
-      .all() as Record<string, string>[]
+    const rows = db.prepare('SELECT * FROM projects ORDER BY last_opened_at DESC').all() as Record<
+      string,
+      string
+    >[]
     return rows.map(this.toProject)
   }
 
@@ -49,6 +50,23 @@ export class ProjectService {
       | Record<string, string>
       | undefined
     return row ? this.toProject(row) : null
+  }
+
+  deleteProject(id: string): string[] {
+    const db = getDatabase()
+    const tx = db.transaction((projectId: string) => {
+      const threadRows = db
+        .prepare('SELECT id FROM threads WHERE project_id = ?')
+        .all(projectId) as Array<{
+        id: string
+      }>
+
+      db.prepare('DELETE FROM projects WHERE id = ?').run(projectId)
+
+      return threadRows.map((thread) => thread.id)
+    })
+
+    return tx(id)
   }
 
   private toProject(row: Record<string, string>): Project {

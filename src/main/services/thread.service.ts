@@ -5,6 +5,25 @@ import type { Thread, Message, CreateThreadParams, CreateMessageParams } from '@
 export class ThreadService {
   createThread(params: CreateThreadParams): Thread {
     const db = getDatabase()
+    const existingEmptyThread = db
+      .prepare(
+        `SELECT t.*
+         FROM threads t
+         LEFT JOIN messages m ON m.thread_id = t.id
+         WHERE t.project_id = ?
+           AND t.provider = ?
+           AND t.model = ?
+         GROUP BY t.id
+         HAVING COUNT(m.id) = 0
+         ORDER BY t.updated_at DESC
+         LIMIT 1`
+      )
+      .get(params.projectId, params.provider, params.model) as Record<string, string> | undefined
+
+    if (existingEmptyThread) {
+      return this.toThread(existingEmptyThread)
+    }
+
     const id = uuidv4()
     const now = new Date().toISOString()
     const title = params.title || 'New Thread'
@@ -34,9 +53,10 @@ export class ThreadService {
 
   listAllThreads(): Thread[] {
     const db = getDatabase()
-    const rows = db
-      .prepare('SELECT * FROM threads ORDER BY updated_at DESC')
-      .all() as Record<string, string>[]
+    const rows = db.prepare('SELECT * FROM threads ORDER BY updated_at DESC').all() as Record<
+      string,
+      string
+    >[]
     return rows.map(this.toThread)
   }
 
@@ -80,10 +100,7 @@ export class ThreadService {
     )
 
     // Update thread's updated_at
-    db.prepare('UPDATE threads SET updated_at = datetime(?) WHERE id = ?').run(
-      now,
-      params.threadId
-    )
+    db.prepare('UPDATE threads SET updated_at = datetime(?) WHERE id = ?').run(now, params.threadId)
 
     return {
       id,

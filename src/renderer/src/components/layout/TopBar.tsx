@@ -64,11 +64,16 @@ export function TopBar(): React.JSX.Element {
 
   return (
     <div className="drag-region flex h-12 items-center gap-2 border-b border-border px-3">
-      {!sidebarOpen && (
-        <Button variant="ghost" size="icon" className="no-drag h-7 w-7" onClick={toggleSidebar}>
-          <PanelLeft className="h-4 w-4" />
-        </Button>
-      )}
+      <Button
+        variant="ghost"
+        size="icon"
+        className="no-drag h-7 w-7"
+        onClick={toggleSidebar}
+        aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+        title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+      >
+        <PanelLeft className="h-4 w-4" />
+      </Button>
 
       <div className="no-drag flex items-center gap-2">
         <ProjectSelector />
@@ -91,11 +96,16 @@ export function TopBar(): React.JSX.Element {
           {otherEditors.length > 0 && (
             <DropdownMenu>
               <DropdownMenuTrigger
-                children={
-                  <Button variant="ghost" size="icon" className="h-7 w-6 rounded-l-none text-xs">
+                render={(triggerProps) => (
+                  <Button
+                    {...triggerProps}
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-6 rounded-l-none text-xs"
+                  >
                     <ChevronDown className="h-3 w-3" />
                   </Button>
-                }
+                )}
               />
               <DropdownMenuContent align="end" className="w-full">
                 {otherEditors.map((editor) => (
