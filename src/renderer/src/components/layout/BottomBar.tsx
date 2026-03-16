@@ -8,7 +8,7 @@ export function BottomBar(): React.JSX.Element {
   const { status } = useGitStatus()
   console.log(status)
   return (
-    <div className="flex h-6 items-center gap-3 border-t border-border px-3 text-xs text-muted-foreground">
+    <div className="flex h-8 items-center gap-3 border-t border-border px-3 text-xs text-muted-foreground">
       {project && status && (
         <>
           <div className="flex items-center gap-1">

@@ -50,6 +50,7 @@ export interface InvokeChannels {
   'project:select': () => Project | null
   'project:list': () => Project[]
   'project:open': (projectId: string) => Project | null
+  'project:delete': (projectId: string) => void
 
   // Settings
   'settings:get': () => AppSettings

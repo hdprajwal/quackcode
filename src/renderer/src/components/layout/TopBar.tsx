@@ -64,11 +64,9 @@ export function TopBar(): React.JSX.Element {
 
   return (
     <div className="drag-region flex h-12 items-center gap-2 border-b border-border px-3">
-      {!sidebarOpen && (
-        <Button variant="ghost" size="icon" className="no-drag h-7 w-7" onClick={toggleSidebar}>
-          <PanelLeft className="h-4 w-4" />
-        </Button>
-      )}
+      <Button variant="ghost" size="icon" className="no-drag h-7 w-7" onClick={toggleSidebar}>
+        <PanelLeft className="h-4 w-4" />
+      </Button>
 
       <div className="no-drag flex items-center gap-2">
         <ProjectSelector />

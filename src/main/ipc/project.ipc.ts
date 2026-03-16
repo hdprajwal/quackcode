@@ -1,5 +1,6 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron'
 import { projectService } from '../services/project.service'
+import { aiService } from '../services/ai/ai.service'
 
 export function registerProjectIpc(): void {
   ipcMain.handle('project:select', async () => {
@@ -21,5 +22,12 @@ export function registerProjectIpc(): void {
 
   ipcMain.handle('project:open', (_event, projectId: string) => {
     return projectService.getProject(projectId)
+  })
+
+  ipcMain.handle('project:delete', (_event, projectId: string) => {
+    const threadIds = projectService.deleteProject(projectId)
+    for (const threadId of threadIds) {
+      aiService.disposeThread(threadId)
+    }
   })
 }

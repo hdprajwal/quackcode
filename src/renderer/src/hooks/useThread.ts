@@ -6,7 +6,7 @@ import { useSettingsStore } from '@renderer/stores/settings.store'
 import type { Thread } from '@shared/types'
 
 export function useThread(): {
-  createThread: () => Promise<Thread | null>
+  createThread: (projectId?: string) => Promise<Thread | null>
   deleteThread: (threadId: string) => Promise<void>
   switchThread: (threadId: string) => Promise<void>
   loadThreads: () => Promise<void>
@@ -27,18 +27,32 @@ export function useThread(): {
     setThreads(threads)
   }, [])
 
-  const createThread = useCallback(async () => {
-    if (!project) return null
-    const thread = await invoke<Thread>('thread:create', {
-      projectId: project.id,
-      provider: selectedProvider,
-      model: selectedModel
-    })
-    addThread(thread)
-    setActiveThread(thread.id)
-    setMessages([])
-    return thread
-  }, [project, selectedProvider, selectedModel])
+  const createThread = useCallback(
+    async (projectId?: string) => {
+      const targetProjectId = projectId ?? project?.id
+      if (!targetProjectId) return null
+
+      const thread = await invoke<Thread>('thread:create', {
+        projectId: targetProjectId,
+        provider: selectedProvider,
+        model: selectedModel
+      })
+
+      const targetProject = useProjectStore
+        .getState()
+        .recentProjects.find((recentProject) => recentProject.id === targetProjectId)
+
+      if (targetProject) {
+        useProjectStore.getState().setProject(targetProject)
+      }
+
+      addThread(thread)
+      setActiveThread(thread.id)
+      setMessages([])
+      return thread
+    },
+    [project, selectedProvider, selectedModel]
+  )
 
   const deleteThread = useCallback(async (threadId: string) => {
     await invoke('thread:delete', threadId)
@@ -49,7 +63,9 @@ export function useThread(): {
     setActiveThread(threadId)
     const thread = useThreadStore.getState().threads.find((t) => t.id === threadId)
     if (thread) {
-      const project = useProjectStore.getState().recentProjects.find((p) => p.id === thread.projectId)
+      const project = useProjectStore
+        .getState()
+        .recentProjects.find((p) => p.id === thread.projectId)
       if (project) {
         useProjectStore.getState().setProject(project)
       }

@@ -22,6 +22,7 @@ interface ThreadStore {
   addThread: (thread: Thread) => void
   updateThread: (thread: Thread) => void
   removeThread: (threadId: string) => void
+  removeProjectThreads: (projectId: string) => void
   setMessages: (messages: Message[]) => void
   setIsStreaming: (streaming: boolean) => void
 
@@ -49,6 +50,19 @@ export const useThreadStore = create<ThreadStore>((set, get) => ({
       threads: s.threads.filter((t) => t.id !== threadId),
       activeThreadId: s.activeThreadId === threadId ? null : s.activeThreadId
     })),
+  removeProjectThreads: (projectId) =>
+    set((state) => {
+      const activeThread = state.threads.find((thread) => thread.id === state.activeThreadId)
+      const removedActiveThread = activeThread?.projectId === projectId
+
+      return {
+        threads: state.threads.filter((thread) => thread.projectId !== projectId),
+        activeThreadId: removedActiveThread ? null : state.activeThreadId,
+        messages: removedActiveThread ? [] : state.messages,
+        pendingMessage: removedActiveThread ? null : state.pendingMessage,
+        isStreaming: removedActiveThread ? false : state.isStreaming
+      }
+    }),
   setMessages: (messages) => set({ messages }),
   setIsStreaming: (streaming) => set({ isStreaming: streaming }),
 
