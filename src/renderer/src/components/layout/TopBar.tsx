@@ -95,11 +95,18 @@ export function TopBar(): React.JSX.Element {
           </Button>
           {otherEditors.length > 0 && (
             <DropdownMenu>
-              <DropdownMenuTrigger>
-                <Button variant="ghost" size="icon" className="h-7 w-6 rounded-l-none text-xs">
-                  <ChevronDown className="h-3 w-3" />
-                </Button>
-              </DropdownMenuTrigger>
+              <DropdownMenuTrigger
+                render={(triggerProps) => (
+                  <Button
+                    {...triggerProps}
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-6 rounded-l-none text-xs"
+                  >
+                    <ChevronDown className="h-3 w-3" />
+                  </Button>
+                )}
+              />
               <DropdownMenuContent align="end" className="w-full">
                 {otherEditors.map((editor) => (
                   <DropdownMenuItem key={editor.id} onClick={() => openInEditor(editor.id)}>
