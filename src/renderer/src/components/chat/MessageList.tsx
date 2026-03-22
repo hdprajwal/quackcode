@@ -7,6 +7,9 @@ export function MessageList(): React.JSX.Element {
   const messages = useThreadStore((s) => s.messages)
   const pendingMessage = useThreadStore((s) => s.pendingMessage)
   const isStreaming = useThreadStore((s) => s.isStreaming)
+  const shouldShowStreamingIndicator =
+    isStreaming &&
+    (!pendingMessage || (!pendingMessage.content && pendingMessage.toolCalls.length === 0))
 
   return (
     <div className="flex flex-col gap-6 p-4 pb-32">
@@ -57,6 +60,7 @@ export function MessageList(): React.JSX.Element {
             <ToolCallMessage
               toolCalls={pendingMessage.toolCalls}
               toolResults={pendingMessage.toolResults}
+              toolCallBuffers={pendingMessage.toolCallBuffers}
             />
           )}
           {pendingMessage.content && (
@@ -68,7 +72,7 @@ export function MessageList(): React.JSX.Element {
       )}
 
       {/* Streaming indicator with shimmer */}
-      {isStreaming && !pendingMessage?.content && pendingMessage?.toolCalls.length === 0 && (
+      {shouldShowStreamingIndicator && (
         <Message from="assistant">
           <MessageContent>
             <Shimmer className="text-sm">Thinking...</Shimmer>
