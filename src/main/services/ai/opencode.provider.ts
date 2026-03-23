@@ -1,4 +1,4 @@
-import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { EOL } from 'node:os'
 import type { AIModel, ToolDefinition } from '@shared/types'
 import type { AIProviderInterface, ChatMessage, StreamCallbacks } from './provider.interface'
@@ -69,7 +69,7 @@ export class OpencodeProvider implements AIProviderInterface {
     }
 
     try {
-      const models = this.loadModelsFromCli()
+      const models = await this.loadModelsFromCli()
       this.modelsCache = models.length > 0 ? models : FALLBACK_MODELS
     } catch {
       this.modelsCache = FALLBACK_MODELS
@@ -78,24 +78,55 @@ export class OpencodeProvider implements AIProviderInterface {
     return this.modelsCache
   }
 
-  private loadModelsFromCli(): AIModel[] {
-    const result = spawnSync('opencode', ['models'], {
-      env: this.getEnv(),
-      encoding: 'utf8',
-      timeout: 10000
+  private async loadModelsFromCli(): Promise<AIModel[]> {
+    const outputText = await new Promise<string>((resolve, reject) => {
+      const process = spawn('opencode', ['models'], {
+        env: this.getEnv(),
+        stdio: ['ignore', 'pipe', 'pipe']
+      })
+
+      let stdout = ''
+      let stderr = ''
+      const timeout = setTimeout(() => {
+        process.kill()
+        reject(new Error('OpenCode models command timed out'))
+      }, 10000)
+
+      process.stdout.on('data', (chunk: Buffer | string) => {
+        stdout += chunk.toString()
+      })
+
+      process.stderr.on('data', (chunk: Buffer | string) => {
+        stderr += chunk.toString()
+      })
+
+      process.once('error', (error) => {
+        clearTimeout(timeout)
+        reject(error)
+      })
+
+      process.once('exit', (code) => {
+        clearTimeout(timeout)
+        if (code === 0) {
+          resolve(stdout)
+          return
+        }
+
+        reject(
+          new Error(
+            stderr.trim() || `OpenCode models command exited with code ${code ?? 'unknown'}`
+          )
+        )
+      })
     })
 
-    if (result.error) {
-      throw result.error
-    }
-
-    const output = result.stdout
+    const output = outputText
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean)
 
     if (output.length === 0) {
-      throw new Error(result.stderr || 'OpenCode models command returned no models')
+      throw new Error('OpenCode models command returned no models')
     }
 
     return output.map((modelId) => ({
