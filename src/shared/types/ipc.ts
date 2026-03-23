@@ -28,8 +28,8 @@ export interface InvokeChannels {
   // AI
   'ai:send': (params: SendMessageParams) => void
   'ai:cancel': (threadId: string) => void
-  'ai:models': () => Promise<AIModel[]>
-  'ai:verifyKey': (params: { provider: AIProvider; apiKey: string }) => Promise<boolean>
+  'ai:models': () => AIModel[]
+  'ai:verifyKey': (params: { provider: AIProvider; apiKey: string }) => boolean
 
   // Filesystem
   'fs:read': (params: { path: string; projectPath: string }) => FileReadResult

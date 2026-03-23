@@ -44,4 +44,5 @@ export interface AIProviderInterface {
   verifyApiKey(apiKey: string): Promise<boolean>
 
   disposeThread?(threadId: string): Promise<void> | void
+  disposeAll?(): Promise<void> | void
 }

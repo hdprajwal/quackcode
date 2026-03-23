@@ -41,14 +41,14 @@ export class AIService {
   }
 
   async listAllModels(): Promise<AIModel[]> {
-    const models: AIModel[] = []
-    for (const [providerId, provider] of Object.entries(this.providers) as Array<
-      [AIProvider, AIProviderInterface]
-    >) {
+    const entries = Object.entries(this.providers) as Array<[AIProvider, AIProviderInterface]>
+
+    for (const [providerId, provider] of entries) {
       this.configureProviderForModelListing(providerId, provider)
-      models.push(...(await provider.listModels()))
     }
-    return models
+
+    const results = await Promise.all(entries.map(([, provider]) => provider.listModels()))
+    return results.flat()
   }
 
   private configureProviderForModelListing(
@@ -79,6 +79,10 @@ export class AIService {
     for (const provider of Object.values(this.providers)) {
       provider.disposeThread?.(threadId)
     }
+  }
+
+  async disposeAll(): Promise<void> {
+    await Promise.all(Object.values(this.providers).map((provider) => provider.disposeAll?.()))
   }
 }
 

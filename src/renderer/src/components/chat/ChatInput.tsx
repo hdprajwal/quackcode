@@ -28,18 +28,11 @@ import {
 import { useThreadStore } from '@renderer/stores/thread.store'
 import { useProjectStore } from '@renderer/stores/project.store'
 import { useSettings } from '@renderer/hooks/useSettings'
+import { PROVIDER_LABELS } from '@renderer/lib/provider-labels'
 import { useSettingsStore } from '@renderer/stores/settings.store'
 import { Check, ChevronDown } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import type { AIModel, AIProvider } from '@shared/types'
-
-const providerLabels: Record<AIProvider, string> = {
-  anthropic: 'Anthropic',
-  openai: 'OpenAI',
-  gemini: 'Gemini',
-  cursor: 'Cursor',
-  opencode: 'OpenCode'
-}
 
 function getProviderLogo(provider: AIProvider): string {
   return provider === 'gemini' ? 'google' : provider
@@ -80,7 +73,7 @@ export function ChatInput({ onSend, onCancel }: ChatInputProps): React.JSX.Eleme
     return (
       <ModelSelectorItem
         key={model.id}
-        value={`${model.name} ${model.id} ${providerLabels[model.provider]}`}
+        value={`${model.name} ${model.id} ${PROVIDER_LABELS[model.provider]}`}
         onSelect={() => {
           void handleModelSelect(model.provider, model.id)
         }}
@@ -144,7 +137,7 @@ export function ChatInput({ onSend, onCancel }: ChatInputProps): React.JSX.Eleme
                     {Object.entries(grouped).map(([provider, providerModels]) => (
                       <ModelSelectorGroup
                         key={provider}
-                        heading={providerLabels[provider as AIProvider] ?? provider}
+                        heading={PROVIDER_LABELS[provider as AIProvider] ?? provider}
                       >
                         {providerModels.map(renderModelItem)}
                       </ModelSelectorGroup>

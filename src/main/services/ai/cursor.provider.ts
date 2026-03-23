@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { EOL, homedir } from 'node:os'
-import { dirname } from 'node:path'
+import { delimiter, dirname } from 'node:path'
 import type { AIModel, ToolDefinition } from '@shared/types'
 import type { AIProviderInterface, ChatMessage, StreamCallbacks } from './provider.interface'
 
@@ -79,9 +79,10 @@ export class CursorProvider implements AIProviderInterface {
     try {
       const session = await this.getOrCreateSession(MODEL_DISCOVERY_THREAD_ID, process.cwd())
       this.modelsCache = session.modelOptions.length > 0 ? session.modelOptions : FALLBACK_MODELS
-    } catch (error) {
-      await this.disposeThread(MODEL_DISCOVERY_THREAD_ID)
+    } catch {
       this.modelsCache = FALLBACK_MODELS
+    } finally {
+      await this.disposeThread(MODEL_DISCOVERY_THREAD_ID)
     }
 
     return this.modelsCache
@@ -182,6 +183,11 @@ export class CursorProvider implements AIProviderInterface {
     }
   }
 
+  async disposeAll(): Promise<void> {
+    await Promise.all([...this.sessions.keys()].map((threadId) => this.disposeThread(threadId)))
+    this.agentBinary = null
+  }
+
   private buildPrompt(
     messages: ChatMessage[],
     systemPrompt: string,
@@ -234,7 +240,7 @@ export class CursorProvider implements AIProviderInterface {
 
     return {
       ...process.env,
-      PATH: pathEntries.join(':'),
+      PATH: pathEntries.join(delimiter),
       ...(apiKey ? { CURSOR_API_KEY: apiKey } : {})
     }
   }
@@ -276,7 +282,7 @@ export class CursorProvider implements AIProviderInterface {
     if (binary.includes('/')) {
       const binDir = dirname(binary)
       const pathEntries = [binDir, env.PATH || '']
-      env.PATH = pathEntries.filter(Boolean).join(':')
+      env.PATH = pathEntries.filter(Boolean).join(delimiter)
     }
 
     return env
@@ -416,7 +422,12 @@ export class CursorProvider implements AIProviderInterface {
         value: mode
       })
       this.updateSessionConfig(session, response)
-    } catch {
+    } catch (error) {
+      console.debug('Cursor ACP mode config fallback', {
+        sessionId: session.sessionId,
+        mode,
+        error
+      })
       const response = await this.sendRequest(session, 'session/set_mode', {
         sessionId: session.sessionId,
         modeId: mode
@@ -438,7 +449,12 @@ export class CursorProvider implements AIProviderInterface {
         value: model
       })
       this.updateSessionConfig(session, response)
-    } catch {
+    } catch (error) {
+      console.debug('Cursor ACP model config fallback', {
+        sessionId: session.sessionId,
+        model,
+        error
+      })
       const response = await this.sendRequest(session, 'session/set_model', {
         sessionId: session.sessionId,
         modelId: model
@@ -585,6 +601,15 @@ export class CursorProvider implements AIProviderInterface {
       })
 
       const optionId = selected ? this.getPermissionOptionId(selected) : null
+
+      if (optionId) {
+        console.warn('Auto-approving Cursor ACP permission request', {
+          sessionId: session.sessionId,
+          optionId,
+          kind:
+            selected && typeof selected === 'object' && 'kind' in selected ? selected.kind : null
+        })
+      }
 
       this.writeMessage(session.process, {
         jsonrpc: '2.0',

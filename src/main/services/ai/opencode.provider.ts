@@ -178,6 +178,10 @@ export class OpencodeProvider implements AIProviderInterface {
     }
   }
 
+  async disposeAll(): Promise<void> {
+    await Promise.all([...this.sessions.keys()].map((threadId) => this.disposeThread(threadId)))
+  }
+
   async verifyApiKey(apiKey: string): Promise<boolean> {
     try {
       const process = spawn('opencode', ['acp'], {

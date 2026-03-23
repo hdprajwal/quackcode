@@ -4,6 +4,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { initDatabase, closeDatabase } from './db/database'
 import { registerAllIpc } from './ipc'
+import { aiService } from './services/ai/ai.service'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -75,5 +76,6 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  void aiService.disposeAll()
   closeDatabase()
 })
