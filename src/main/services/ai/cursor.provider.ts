@@ -20,6 +20,7 @@ type PendingRequest = {
 type ActivePrompt = {
   callbacks: StreamCallbacks
   fullText: string
+  errorReported: boolean
 }
 
 type ConfigOption = {
@@ -40,6 +41,7 @@ type LegacyModelInfo = {
 type SessionState = {
   threadId: string
   cwd: string
+  apiKey: string | null
   process: ChildProcessWithoutNullStreams
   readyPromise: Promise<void>
   pending: Map<number, PendingRequest>
@@ -58,6 +60,7 @@ type SessionState = {
 
 const FALLBACK_MODELS: AIModel[] = [{ id: 'default[]', name: 'Auto', provider: 'cursor' }]
 const MODEL_DISCOVERY_THREAD_ID = '__cursor_model_discovery__'
+const VERIFY_THREAD_ID = '__cursor_verify__'
 
 export class CursorProvider implements AIProviderInterface {
   readonly provider = 'cursor' as const
@@ -74,6 +77,7 @@ export class CursorProvider implements AIProviderInterface {
 
     this.apiKey = nextApiKey
     this.modelsCache = null
+    this.disposeSessions()
   }
 
   async listModels(): Promise<AIModel[]> {
@@ -82,8 +86,7 @@ export class CursorProvider implements AIProviderInterface {
     }
 
     try {
-      const session = await this.getOrCreateSession(MODEL_DISCOVERY_THREAD_ID, process.cwd())
-      this.modelsCache = session.modelOptions.length > 0 ? session.modelOptions : FALLBACK_MODELS
+      this.modelsCache = await this.loadModelsFromSession()
     } catch {
       this.modelsCache = FALLBACK_MODELS
     } finally {
@@ -100,47 +103,88 @@ export class CursorProvider implements AIProviderInterface {
     systemPrompt: string,
     callbacks: StreamCallbacks,
     signal?: AbortSignal,
-    context?: { threadId?: string; cwd?: string }
+    context?: { threadId?: string; cwd?: string; apiKeyOverride?: string | null }
   ): Promise<ChatMessage | null> {
     const threadId = context?.threadId
     const cwd = context?.cwd
+    const apiKeyOverride = context?.apiKeyOverride
     if (!threadId || !cwd) {
       callbacks.onError('Cursor requires a thread ID and working directory')
       return null
     }
 
+    let session: SessionState | null = null
+    let currentPrompt: ActivePrompt | null = null
+
     try {
-      const session = await this.getOrCreateSession(threadId, cwd)
+      session = await this.getOrCreateSession(threadId, cwd, apiKeyOverride)
       const promptText = this.buildPrompt(messages, systemPrompt, session.syncedMessageCount)
       if (!promptText) {
         callbacks.onDone()
         return { role: 'assistant', content: '' }
       }
 
-      session.activePrompt = { callbacks, fullText: '' }
-      const onAbort = (): void => {
-        void this.cancelSessionPrompt(session)
+      const activePrompt: ActivePrompt = { callbacks, fullText: '', errorReported: false }
+      currentPrompt = activePrompt
+      session.activePrompt = activePrompt
+
+      let abortResolve: (() => void) | null = null
+      const handleAbort = (): void => {
+        abortResolve?.()
       }
-      signal?.addEventListener('abort', onAbort)
+      const abortPromise = signal
+        ? new Promise<'aborted'>((resolve) => {
+            abortResolve = (): void => resolve('aborted')
+
+            if (signal.aborted) {
+              resolve('aborted')
+              return
+            }
+
+            signal.addEventListener('abort', handleAbort, { once: true })
+          })
+        : null
 
       try {
         await this.ensureSessionMode(session, 'agent')
         await this.ensureSessionModel(session, model)
-        const promptResponse = await this.sendRequest(session, 'session/prompt', {
+        if (signal?.aborted) {
+          await this.cancelSessionPrompt(session)
+          await this.disposeThread(threadId)
+          return null
+        }
+
+        const promptRequest = this.sendRequest(session, 'session/prompt', {
           sessionId: session.sessionId,
           prompt: [{ type: 'text', text: promptText }]
         })
 
-        if (signal?.aborted || promptResponse.stopReason === 'cancelled') {
+        const promptResponse = abortPromise
+          ? await Promise.race<
+              { kind: 'response'; value: Record<string, unknown> } | { kind: 'aborted' }
+            >([
+              promptRequest.then((value) => ({ kind: 'response' as const, value })),
+              abortPromise.then(() => ({ kind: 'aborted' as const }))
+            ])
+          : { kind: 'response' as const, value: await promptRequest }
+
+        if (promptResponse.kind === 'aborted') {
+          void promptRequest.catch(() => undefined)
+          await this.cancelSessionPrompt(session)
+          await this.disposeThread(threadId)
+          return null
+        }
+
+        if (signal?.aborted || promptResponse.value.stopReason === 'cancelled') {
           await this.disposeThread(threadId)
           return null
         }
 
         session.syncedMessageCount = messages.length
         callbacks.onDone()
-        return { role: 'assistant', content: session.activePrompt.fullText }
+        return { role: 'assistant', content: activePrompt.fullText }
       } finally {
-        signal?.removeEventListener('abort', onAbort)
+        signal?.removeEventListener('abort', handleAbort)
         session.activePrompt = null
       }
     } catch (error: unknown) {
@@ -149,26 +193,36 @@ export class CursorProvider implements AIProviderInterface {
       }
 
       const message = error instanceof Error ? error.message : 'Unknown error'
-      callbacks.onError(message)
+      if (!currentPrompt?.errorReported) {
+        callbacks.onError(message)
+      }
       await this.disposeThread(threadId)
       return null
     }
   }
 
   async verifyApiKey(apiKey: string): Promise<boolean> {
-    const previousApiKey = this.apiKey
-
     try {
-      this.apiKey = apiKey.trim() || null
-      const session = await this.getOrCreateSession(MODEL_DISCOVERY_THREAD_ID, process.cwd())
+      const session = await this.getOrCreateSession(
+        VERIFY_THREAD_ID,
+        process.cwd(),
+        apiKey.trim() || null
+      )
       return session.sessionId.length > 0
     } catch {
       return false
     } finally {
-      await this.disposeThread(MODEL_DISCOVERY_THREAD_ID)
-      this.apiKey = previousApiKey
-      this.modelsCache = null
+      await this.disposeThread(VERIFY_THREAD_ID)
     }
+  }
+
+  private async loadModelsFromSession(apiKeyOverride?: string | null): Promise<AIModel[]> {
+    const session = await this.getOrCreateSession(
+      MODEL_DISCOVERY_THREAD_ID,
+      process.cwd(),
+      apiKeyOverride
+    )
+    return session.modelOptions.length > 0 ? session.modelOptions : FALLBACK_MODELS
   }
 
   async disposeThread(threadId: string): Promise<void> {
@@ -191,6 +245,12 @@ export class CursorProvider implements AIProviderInterface {
   async disposeAll(): Promise<void> {
     await Promise.all([...this.sessions.keys()].map((threadId) => this.disposeThread(threadId)))
     this.agentBinary = null
+  }
+
+  private disposeSessions(): void {
+    for (const threadId of [...this.sessions.keys()]) {
+      void this.disposeThread(threadId)
+    }
   }
 
   private buildPrompt(
@@ -233,7 +293,8 @@ export class CursorProvider implements AIProviderInterface {
       .join(`${EOL}${EOL}`)
   }
 
-  private getBaseEnv(apiKey = this.apiKey): NodeJS.ProcessEnv {
+  private getBaseEnv(apiKeyOverride?: string | null): NodeJS.ProcessEnv {
+    const apiKey = apiKeyOverride ?? this.apiKey
     const pathEntries = [
       process.env.PATH || '',
       `${homedir()}/.local/bin`,
@@ -280,8 +341,8 @@ export class CursorProvider implements AIProviderInterface {
     return this.agentBinary
   }
 
-  private getEnv(apiKey = this.apiKey): NodeJS.ProcessEnv {
-    const env = this.getBaseEnv(apiKey)
+  private getEnv(apiKeyOverride?: string | null): NodeJS.ProcessEnv {
+    const env = this.getBaseEnv(apiKeyOverride)
     const binary = this.getAgentBinary()
 
     if (binary.includes('/')) {
@@ -300,9 +361,19 @@ export class CursorProvider implements AIProviderInterface {
     process.stdin.write(`${JSON.stringify(message)}${EOL}`)
   }
 
-  private async getOrCreateSession(threadId: string, cwd: string): Promise<SessionState> {
+  private async getOrCreateSession(
+    threadId: string,
+    cwd: string,
+    apiKeyOverride?: string | null
+  ): Promise<SessionState> {
+    const sessionApiKey = apiKeyOverride ?? this.apiKey
     const existing = this.sessions.get(threadId)
-    if (existing && existing.cwd === cwd && !existing.disposed) {
+    if (
+      existing &&
+      existing.cwd === cwd &&
+      existing.apiKey === sessionApiKey &&
+      !existing.disposed
+    ) {
       await existing.readyPromise
       return existing
     }
@@ -314,7 +385,7 @@ export class CursorProvider implements AIProviderInterface {
     const agentBinary = this.getAgentBinary()
     const process = spawn(agentBinary, ['acp'], {
       cwd,
-      env: this.getEnv(),
+      env: this.getEnv(apiKeyOverride),
       stdio: ['pipe', 'pipe', 'pipe']
     })
 
@@ -328,6 +399,7 @@ export class CursorProvider implements AIProviderInterface {
     const session: SessionState = {
       threadId,
       cwd,
+      apiKey: sessionApiKey,
       process,
       readyPromise,
       pending: new Map<number, PendingRequest>(),
@@ -350,7 +422,10 @@ export class CursorProvider implements AIProviderInterface {
         this.sessions.delete(threadId)
         rejectReady(error)
         this.failPending(session, error)
-        session.activePrompt?.callbacks.onError(error.message)
+        if (session.activePrompt) {
+          session.activePrompt.errorReported = true
+          session.activePrompt.callbacks.onError(error.message)
+        }
         reject(error)
       })
 
@@ -362,7 +437,10 @@ export class CursorProvider implements AIProviderInterface {
         )
         rejectReady(error)
         this.failPending(session, error)
-        session.activePrompt?.callbacks.onError(error.message)
+        if (session.activePrompt) {
+          session.activePrompt.errorReported = true
+          session.activePrompt.callbacks.onError(error.message)
+        }
         reject(error)
       })
     })
@@ -623,7 +701,18 @@ export class CursorProvider implements AIProviderInterface {
           ? { outcome: { outcome: 'selected', optionId } }
           : { outcome: { outcome: 'cancelled' } }
       })
+      return
     }
+
+    this.writeMessage(session.process, {
+      jsonrpc: '2.0',
+      id: message.id,
+      error: {
+        code: -32601,
+        message: 'Method not found',
+        data: { method: message.method }
+      }
+    })
   }
 
   private getPermissionOptionId(option: object): string {

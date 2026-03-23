@@ -38,6 +38,7 @@ export interface AIProviderInterface {
     context?: {
       threadId?: string
       cwd?: string
+      apiKeyOverride?: string | null
     }
   ): Promise<ChatMessage | null>
 
