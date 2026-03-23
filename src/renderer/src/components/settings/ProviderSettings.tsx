@@ -30,10 +30,12 @@ export function ProviderSettings({ provider, label }: ProviderSettingsProps): Re
 
   const logoProvider = provider === 'gemini' ? 'google' : provider
   const isClaudeProConnected = provider === 'anthropic' && config?.authMode === 'claudePro'
-  const isOpencode = provider === 'opencode'
+  const isCliProvider = provider === 'opencode' || provider === 'cursor'
+  const cliCommand = provider === 'cursor' ? 'agent acp' : 'opencode acp'
+  const cliAuthEnv = provider === 'cursor' ? 'CURSOR_API_KEY' : 'OPENCODE_API_KEY'
 
   const handleSave = async (): Promise<void> => {
-    await updateProvider(provider, { apiKey, enabled: !!apiKey })
+    await updateProvider(provider, { apiKey, enabled: isCliProvider || !!apiKey })
   }
 
   const handleVerify = async (): Promise<void> => {
@@ -107,7 +109,7 @@ export function ProviderSettings({ provider, label }: ProviderSettingsProps): Re
                 setApiKey(e.target.value)
                 setVerified(null)
               }}
-              placeholder={isOpencode ? 'Optional OPENCODE_API_KEY' : 'API Key'}
+              placeholder={isCliProvider ? `Optional ${cliAuthEnv}` : 'API Key'}
               className="pr-8"
             />
             <button
@@ -118,7 +120,11 @@ export function ProviderSettings({ provider, label }: ProviderSettingsProps): Re
               {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
           </div>
-          <Button size="sm" onClick={handleVerify} disabled={(!apiKey && !isOpencode) || verifying}>
+          <Button
+            size="sm"
+            onClick={handleVerify}
+            disabled={(!apiKey && !isCliProvider) || verifying}
+          >
             {verifying ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : verified === true ? (
@@ -130,10 +136,10 @@ export function ProviderSettings({ provider, label }: ProviderSettingsProps): Re
             )}
           </Button>
         </div>
-        {isOpencode && (
+        {isCliProvider && (
           <p className="text-xs text-muted-foreground">
-            Uses your local <code className="font-mono">opencode acp</code> install. The API key is
-            optional when OpenCode is already authenticated.
+            Uses your local <code className="font-mono">{cliCommand}</code> install. The API key is
+            optional when the CLI is already authenticated.
           </p>
         )}
         {verified === false && <p className="text-xs text-destructive">Invalid API key</p>}

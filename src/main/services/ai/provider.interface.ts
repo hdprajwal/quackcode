@@ -26,7 +26,7 @@ export interface AIProviderInterface {
 
   setApiKey(apiKey: string): void
 
-  listModels(): AIModel[]
+  listModels(): Promise<AIModel[]>
 
   sendMessage(
     messages: ChatMessage[],

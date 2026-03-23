@@ -14,6 +14,7 @@ import {
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@renderer/components/ui/dialog'
 import { cn } from '@renderer/lib/utils'
 import { ClaudeAiIcon } from '../svgs/claudeAiIcon'
+import { CursorLight } from '../svgs/cursorLight'
 import { Gemini } from '../svgs/gemini'
 import { Openai } from '../svgs/openai'
 
@@ -158,6 +159,10 @@ export const ModelSelectorLogo = ({ provider, className, ...props }: ModelSelect
 
   if (provider === 'google' || provider === 'google-vertex') {
     return <Gemini aria-label="Gemini logo" className={cn('size-3', className)} />
+  }
+
+  if (provider === 'cursor') {
+    return <CursorLight aria-label="Cursor logo" className={cn('size-3 fill-current', className)} />
   }
 
   return (

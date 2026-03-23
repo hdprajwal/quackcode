@@ -1,5 +1,6 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { EOL } from 'node:os'
+import { EOL, homedir } from 'node:os'
+import { dirname } from 'node:path'
 import type { AIModel, ToolDefinition } from '@shared/types'
 import type { AIProviderInterface, ChatMessage, StreamCallbacks } from './provider.interface'
 
@@ -8,7 +9,7 @@ type JsonRpcMessage = {
   method?: string
   params?: Record<string, unknown>
   result?: Record<string, unknown>
-  error?: { message?: string }
+  error?: { message?: string; data?: { message?: string } }
 }
 
 type PendingRequest = {
@@ -21,37 +22,49 @@ type ActivePrompt = {
   fullText: string
 }
 
+type ConfigOption = {
+  id: string
+  currentValue: string | null
+  options: Array<{ value: string; name: string }>
+}
+
+type LegacyModeInfo = {
+  currentModeId: string | null
+}
+
+type LegacyModelInfo = {
+  currentModelId: string | null
+  availableModels: AIModel[]
+}
+
 type SessionState = {
   threadId: string
   cwd: string
   process: ChildProcessWithoutNullStreams
+  readyPromise: Promise<void>
   pending: Map<number, PendingRequest>
   nextId: number
   stdoutBuffer: string
   stderrBuffer: string
   sessionId: string
   currentModel: string | null
+  currentMode: string | null
+  modelOptions: AIModel[]
   syncedMessageCount: number
   activePrompt: ActivePrompt | null
   disposed: boolean
   exitPromise: Promise<never>
 }
 
-const FALLBACK_MODELS: AIModel[] = [
-  { id: 'opencode/big-pickle', name: 'OpenCode Zen/Big Pickle', provider: 'opencode' },
-  { id: 'openai/gpt-5.1-codex', name: 'OpenAI/GPT-5.1 Codex', provider: 'opencode' },
-  {
-    id: 'anthropic/claude-sonnet-4-5-20250929',
-    name: 'Anthropic/Claude Sonnet 4.5',
-    provider: 'opencode'
-  }
-]
+const FALLBACK_MODELS: AIModel[] = [{ id: 'default[]', name: 'Auto', provider: 'cursor' }]
+const MODEL_DISCOVERY_THREAD_ID = '__cursor_model_discovery__'
 
-export class OpencodeProvider implements AIProviderInterface {
-  readonly provider = 'opencode' as const
+export class CursorProvider implements AIProviderInterface {
+  readonly provider = 'cursor' as const
   private apiKey: string | null = null
   private modelsCache: AIModel[] | null = null
   private sessions = new Map<string, SessionState>()
+  private agentBinary: string | null = null
 
   setApiKey(apiKey: string): void {
     this.apiKey = apiKey.trim() || null
@@ -64,40 +77,14 @@ export class OpencodeProvider implements AIProviderInterface {
     }
 
     try {
-      const models = this.loadModelsFromCli()
-      this.modelsCache = models.length > 0 ? models : FALLBACK_MODELS
-    } catch {
+      const session = await this.getOrCreateSession(MODEL_DISCOVERY_THREAD_ID, process.cwd())
+      this.modelsCache = session.modelOptions.length > 0 ? session.modelOptions : FALLBACK_MODELS
+    } catch (error) {
+      await this.disposeThread(MODEL_DISCOVERY_THREAD_ID)
       this.modelsCache = FALLBACK_MODELS
     }
 
     return this.modelsCache
-  }
-
-  private loadModelsFromCli(): AIModel[] {
-    const result = spawnSync('opencode', ['models'], {
-      env: this.getEnv(),
-      encoding: 'utf8',
-      timeout: 10000
-    })
-
-    if (result.error) {
-      throw result.error
-    }
-
-    const output = result.stdout
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-
-    if (output.length === 0) {
-      throw new Error(result.stderr || 'OpenCode models command returned no models')
-    }
-
-    return output.map((modelId) => ({
-      id: modelId,
-      name: this.formatModelName(modelId),
-      provider: 'opencode' as const
-    }))
   }
 
   async sendMessage(
@@ -112,7 +99,7 @@ export class OpencodeProvider implements AIProviderInterface {
     const threadId = context?.threadId
     const cwd = context?.cwd
     if (!threadId || !cwd) {
-      callbacks.onError('OpenCode requires a thread ID and working directory')
+      callbacks.onError('Cursor requires a thread ID and working directory')
       return null
     }
 
@@ -131,6 +118,7 @@ export class OpencodeProvider implements AIProviderInterface {
       signal?.addEventListener('abort', onAbort)
 
       try {
+        await this.ensureSessionMode(session, 'agent')
         await this.ensureSessionModel(session, model)
         const promptResponse = await this.sendRequest(session, 'session/prompt', {
           sessionId: session.sessionId,
@@ -161,6 +149,22 @@ export class OpencodeProvider implements AIProviderInterface {
     }
   }
 
+  async verifyApiKey(apiKey: string): Promise<boolean> {
+    const previousApiKey = this.apiKey
+
+    try {
+      this.apiKey = apiKey.trim() || null
+      const session = await this.getOrCreateSession(MODEL_DISCOVERY_THREAD_ID, process.cwd())
+      return session.sessionId.length > 0
+    } catch {
+      return false
+    } finally {
+      await this.disposeThread(MODEL_DISCOVERY_THREAD_ID)
+      this.apiKey = previousApiKey
+      this.modelsCache = null
+    }
+  }
+
   async disposeThread(threadId: string): Promise<void> {
     const session = this.sessions.get(threadId)
     if (!session) return
@@ -168,76 +172,13 @@ export class OpencodeProvider implements AIProviderInterface {
     this.sessions.delete(threadId)
     session.disposed = true
     session.activePrompt = null
-    this.failPending(session, new Error('OpenCode session closed'))
+    this.failPending(session, new Error('Cursor session closed'))
     session.process.stdout.removeAllListeners('data')
     session.process.stderr.removeAllListeners('data')
     session.process.removeAllListeners('error')
     session.process.removeAllListeners('exit')
     if (!session.process.killed) {
       session.process.kill()
-    }
-  }
-
-  async verifyApiKey(apiKey: string): Promise<boolean> {
-    try {
-      const process = spawn('opencode', ['acp'], {
-        env: this.getEnv(apiKey),
-        stdio: ['pipe', 'pipe', 'pipe']
-      })
-
-      const initRequest = JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'initialize',
-        params: {
-          protocolVersion: 1,
-          clientCapabilities: {
-            fs: { readTextFile: false, writeTextFile: false },
-            terminal: false
-          },
-          clientInfo: {
-            name: 'quackcode',
-            title: 'QuackCode',
-            version: '1.0.0'
-          }
-        }
-      })
-
-      process.stdin.write(`${initRequest}${EOL}`)
-      process.stdin.end()
-
-      const stdout = await new Promise<string>((resolve, reject) => {
-        let output = ''
-        let errorOutput = ''
-
-        process.stdout.on('data', (chunk: Buffer | string) => {
-          output += chunk.toString()
-        })
-
-        process.stderr.on('data', (chunk: Buffer | string) => {
-          errorOutput += chunk.toString()
-        })
-
-        process.once('error', reject)
-        process.once('exit', () => {
-          if (output) {
-            resolve(output)
-            return
-          }
-          reject(new Error(errorOutput || 'OpenCode initialization failed'))
-        })
-      })
-
-      return stdout.split(/\r?\n/).some((line) => {
-        try {
-          const message = JSON.parse(line) as JsonRpcMessage
-          return message.id === 1 && !!message.result
-        } catch {
-          return false
-        }
-      })
-    } catch {
-      return false
     }
   }
 
@@ -281,30 +222,64 @@ export class OpencodeProvider implements AIProviderInterface {
       .join(`${EOL}${EOL}`)
   }
 
-  private formatModelName(modelId: string): string {
-    const [, provider, rawName] = modelId.match(/^([^/]+)\/(.+)$/) ?? []
-    if (!provider || !rawName) {
-      return modelId
+  private getBaseEnv(apiKey = this.apiKey): NodeJS.ProcessEnv {
+    const pathEntries = [
+      process.env.PATH || '',
+      `${homedir()}/.local/bin`,
+      '/usr/local/bin',
+      '/opt/homebrew/bin',
+      '/usr/bin',
+      '/bin'
+    ].filter(Boolean)
+
+    return {
+      ...process.env,
+      PATH: pathEntries.join(':'),
+      ...(apiKey ? { CURSOR_API_KEY: apiKey } : {})
+    }
+  }
+
+  private getAgentBinary(): string {
+    if (this.agentBinary) {
+      return this.agentBinary
     }
 
-    const providerName = provider.charAt(0).toUpperCase() + provider.slice(1)
-    const modelName = rawName
-      .split(/[-_]+/)
-      .map((segment) => {
-        if (/^\d+(?:\.\d+)?$/.test(segment)) return segment
-        if (segment.length <= 3) return segment.toUpperCase()
-        return segment.charAt(0).toUpperCase() + segment.slice(1)
-      })
-      .join(' ')
+    const env = this.getBaseEnv()
+    const candidates = [
+      'agent',
+      `${homedir()}/.local/bin/agent`,
+      '/usr/local/bin/agent',
+      '/opt/homebrew/bin/agent'
+    ]
 
-    return `${providerName}/${modelName}`
+    for (const candidate of candidates) {
+      const result = spawnSync(candidate, ['--version'], {
+        env,
+        encoding: 'utf8',
+        timeout: 5000,
+        stdio: 'ignore'
+      })
+      if (!result.error) {
+        this.agentBinary = candidate
+        return candidate
+      }
+    }
+
+    this.agentBinary = 'agent'
+    return this.agentBinary
   }
 
   private getEnv(apiKey = this.apiKey): NodeJS.ProcessEnv {
-    return {
-      ...process.env,
-      ...(apiKey ? { OPENCODE_API_KEY: apiKey } : {})
+    const env = this.getBaseEnv(apiKey)
+    const binary = this.getAgentBinary()
+
+    if (binary.includes('/')) {
+      const binDir = dirname(binary)
+      const pathEntries = [binDir, env.PATH || '']
+      env.PATH = pathEntries.filter(Boolean).join(':')
     }
+
+    return env
   }
 
   private writeMessage(
@@ -317,6 +292,7 @@ export class OpencodeProvider implements AIProviderInterface {
   private async getOrCreateSession(threadId: string, cwd: string): Promise<SessionState> {
     const existing = this.sessions.get(threadId)
     if (existing && existing.cwd === cwd && !existing.disposed) {
+      await existing.readyPromise
       return existing
     }
 
@@ -324,21 +300,33 @@ export class OpencodeProvider implements AIProviderInterface {
       await this.disposeThread(threadId)
     }
 
-    const process = spawn('opencode', ['acp', '--cwd', cwd], {
+    const agentBinary = this.getAgentBinary()
+    const process = spawn(agentBinary, ['acp'], {
+      cwd,
       env: this.getEnv(),
       stdio: ['pipe', 'pipe', 'pipe']
+    })
+
+    let resolveReady!: () => void
+    let rejectReady!: (error: Error) => void
+    const readyPromise = new Promise<void>((resolve, reject) => {
+      resolveReady = resolve
+      rejectReady = reject
     })
 
     const session: SessionState = {
       threadId,
       cwd,
       process,
+      readyPromise,
       pending: new Map<number, PendingRequest>(),
       nextId: 1,
       stdoutBuffer: '',
       stderrBuffer: '',
       sessionId: '',
       currentModel: null,
+      currentMode: null,
+      modelOptions: [],
       syncedMessageCount: 0,
       activePrompt: null,
       disposed: false,
@@ -349,6 +337,7 @@ export class OpencodeProvider implements AIProviderInterface {
       process.once('error', (error) => {
         if (session.disposed) return
         this.sessions.delete(threadId)
+        rejectReady(error)
         this.failPending(session, error)
         session.activePrompt?.callbacks.onError(error.message)
         reject(error)
@@ -358,8 +347,9 @@ export class OpencodeProvider implements AIProviderInterface {
         if (session.disposed) return
         this.sessions.delete(threadId)
         const error = new Error(
-          session.stderrBuffer.trim() || `OpenCode exited with code ${code ?? 'unknown'}`
+          session.stderrBuffer.trim() || `Cursor agent exited with code ${code ?? 'unknown'}`
         )
+        rejectReady(error)
         this.failPending(session, error)
         session.activePrompt?.callbacks.onError(error.message)
         reject(error)
@@ -381,39 +371,59 @@ export class OpencodeProvider implements AIProviderInterface {
 
     this.sessions.set(threadId, session)
 
-    await this.sendRequest(session, 'initialize', {
-      protocolVersion: 1,
-      clientCapabilities: {
-        fs: { readTextFile: false, writeTextFile: false },
-        terminal: false
-      },
-      clientInfo: {
-        name: 'quackcode',
-        title: 'QuackCode',
-        version: '1.0.0'
-      }
-    })
-
-    const response = await this.sendRequest(session, 'session/new', { cwd, mcpServers: [] })
-    session.sessionId = typeof response.sessionId === 'string' ? response.sessionId : ''
-    if (!session.sessionId) {
-      throw new Error('OpenCode did not return a session ID')
-    }
-
-    const modes = response.modes
-    if (
-      modes &&
-      typeof modes === 'object' &&
-      'currentModeId' in modes &&
-      modes.currentModeId !== 'build'
-    ) {
-      await this.sendRequest(session, 'session/set_mode', {
-        sessionId: session.sessionId,
-        modeId: 'build'
+    try {
+      await this.sendRequest(session, 'initialize', {
+        protocolVersion: 1,
+        clientCapabilities: {
+          fs: { readTextFile: false, writeTextFile: false },
+          terminal: false
+        },
+        clientInfo: {
+          name: 'quackcode',
+          title: 'QuackCode',
+          version: '1.0.0'
+        }
       })
+
+      await this.sendRequest(session, 'authenticate', { methodId: 'cursor_login' })
+
+      const response = await this.sendRequest(session, 'session/new', { cwd, mcpServers: [] })
+      session.sessionId = typeof response.sessionId === 'string' ? response.sessionId : ''
+      if (!session.sessionId) {
+        throw new Error('Cursor agent did not return a session ID')
+      }
+
+      this.updateSessionConfig(session, response)
+      resolveReady()
+      return session
+    } catch (error) {
+      const resolvedError = error instanceof Error ? error : new Error(String(error))
+      rejectReady(resolvedError)
+      await this.disposeThread(threadId)
+      throw resolvedError
+    }
+  }
+
+  private async ensureSessionMode(session: SessionState, mode: string): Promise<void> {
+    if (session.currentMode === mode) {
+      return
     }
 
-    return session
+    try {
+      const response = await this.sendRequest(session, 'session/set_config_option', {
+        sessionId: session.sessionId,
+        configId: 'mode',
+        value: mode
+      })
+      this.updateSessionConfig(session, response)
+    } catch {
+      const response = await this.sendRequest(session, 'session/set_mode', {
+        sessionId: session.sessionId,
+        modeId: mode
+      })
+      this.updateSessionConfig(session, response)
+      session.currentMode = mode
+    }
   }
 
   private async ensureSessionModel(session: SessionState, model: string): Promise<void> {
@@ -421,11 +431,21 @@ export class OpencodeProvider implements AIProviderInterface {
       return
     }
 
-    await this.sendRequest(session, 'session/set_model', {
-      sessionId: session.sessionId,
-      modelId: model
-    })
-    session.currentModel = model
+    try {
+      const response = await this.sendRequest(session, 'session/set_config_option', {
+        sessionId: session.sessionId,
+        configId: 'model',
+        value: model
+      })
+      this.updateSessionConfig(session, response)
+    } catch {
+      const response = await this.sendRequest(session, 'session/set_model', {
+        sessionId: session.sessionId,
+        modelId: model
+      })
+      this.updateSessionConfig(session, response)
+      session.currentModel = model
+    }
   }
 
   private async cancelSessionPrompt(session: SessionState): Promise<void> {
@@ -478,7 +498,7 @@ export class OpencodeProvider implements AIProviderInterface {
       session.pending.delete(message.id)
 
       if (message.error?.message) {
-        request.reject(new Error(message.error.message))
+        request.reject(new Error(message.error.data?.message || message.error.message))
       } else {
         request.resolve((message.result as Record<string, unknown>) ?? {})
       }
@@ -498,6 +518,11 @@ export class OpencodeProvider implements AIProviderInterface {
     if (!update || typeof update !== 'object') return
 
     const sessionUpdate = 'sessionUpdate' in update ? update.sessionUpdate : undefined
+    if (sessionUpdate === 'config_option_update') {
+      this.updateSessionConfig(session, update as Record<string, unknown>)
+      return
+    }
+
     const activePrompt = session.activePrompt
     if (!activePrompt) return
 
@@ -520,7 +545,7 @@ export class OpencodeProvider implements AIProviderInterface {
       if (typeof toolCallId === 'string') {
         activePrompt.callbacks.onToolCall(
           toolCallId,
-          typeof title === 'string' && title ? title : 'OpenCode tool',
+          typeof title === 'string' && title ? title : 'Cursor tool',
           rawInput && typeof rawInput === 'object' ? (rawInput as Record<string, unknown>) : {}
         )
       }
@@ -529,9 +554,17 @@ export class OpencodeProvider implements AIProviderInterface {
 
     if (sessionUpdate === 'tool_call_update') {
       const toolCallId = 'toolCallId' in update ? update.toolCallId : undefined
+      if (typeof toolCallId !== 'string') return
+
       const rawInput = 'rawInput' in update ? update.rawInput : undefined
-      if (typeof toolCallId === 'string' && rawInput && typeof rawInput === 'object') {
+      if (rawInput && typeof rawInput === 'object') {
         activePrompt.callbacks.onToolCallDelta(toolCallId, JSON.stringify(rawInput))
+        return
+      }
+
+      const status = 'status' in update ? update.status : undefined
+      if (typeof status === 'string' && status) {
+        activePrompt.callbacks.onToolCallDelta(toolCallId, status)
       }
     }
   }
@@ -542,19 +575,16 @@ export class OpencodeProvider implements AIProviderInterface {
     if (message.method === 'session/request_permission') {
       const params = message.params ?? {}
       const options = Array.isArray(params.options) ? params.options : []
-      const selected = options.find(
-        (option) =>
-          option &&
-          typeof option === 'object' &&
-          'kind' in option &&
-          (option.kind === 'allow_once' || option.kind === 'allow_always')
-      )
-      const optionId =
-        selected && typeof selected === 'object' && 'optionId' in selected
-          ? selected.optionId
-          : options[0] && typeof options[0] === 'object' && 'optionId' in options[0]
-            ? options[0].optionId
-            : null
+      const selected = options.find((option) => {
+        if (!option || typeof option !== 'object') return false
+        const kind = 'kind' in option && typeof option.kind === 'string' ? option.kind : ''
+        const optionId = this.getPermissionOptionId(option)
+        return [kind, optionId].some((value) =>
+          ['allow_once', 'allow-once', 'allow_always', 'allow-always'].includes(value)
+        )
+      })
+
+      const optionId = selected ? this.getPermissionOptionId(selected) : null
 
       this.writeMessage(session.process, {
         jsonrpc: '2.0',
@@ -566,6 +596,143 @@ export class OpencodeProvider implements AIProviderInterface {
     }
   }
 
+  private getPermissionOptionId(option: object): string {
+    if ('optionId' in option && typeof option.optionId === 'string') {
+      return option.optionId
+    }
+    if ('id' in option && typeof option.id === 'string') {
+      return option.id
+    }
+    return ''
+  }
+
+  private updateSessionConfig(session: SessionState, payload: Record<string, unknown>): void {
+    const configOptions = this.extractConfigOptions(payload)
+    const modelOption = configOptions.find((option) => option.id === 'model')
+    const modeOption = configOptions.find((option) => option.id === 'mode')
+    const legacyModels = this.extractLegacyModels(payload)
+    const legacyModes = this.extractLegacyModes(payload)
+
+    if (modelOption) {
+      session.currentModel = modelOption.currentValue
+      session.modelOptions = modelOption.options.map((option) => ({
+        id: option.value,
+        name: option.name,
+        provider: 'cursor' as const
+      }))
+    } else if (legacyModels.availableModels.length > 0) {
+      session.currentModel = legacyModels.currentModelId
+      session.modelOptions = legacyModels.availableModels
+    }
+
+    if (modeOption) {
+      session.currentMode = modeOption.currentValue
+    } else if (legacyModes.currentModeId) {
+      session.currentMode = legacyModes.currentModeId
+    }
+
+    if (session.modelOptions.length === 0) {
+      session.modelOptions = FALLBACK_MODELS
+    }
+  }
+
+  private extractConfigOptions(payload: Record<string, unknown>): ConfigOption[] {
+    const rawOptions = Array.isArray(payload.configOptions) ? payload.configOptions : []
+
+    return rawOptions.flatMap((option): ConfigOption[] => {
+      if (
+        !option ||
+        typeof option !== 'object' ||
+        !('id' in option) ||
+        typeof option.id !== 'string'
+      ) {
+        return []
+      }
+
+      const options = Array.isArray(option.options)
+        ? option.options.flatMap((value) => {
+            if (
+              !value ||
+              typeof value !== 'object' ||
+              !('value' in value) ||
+              typeof value.value !== 'string'
+            ) {
+              return []
+            }
+
+            return [
+              {
+                value: value.value,
+                name:
+                  'name' in value && typeof value.name === 'string' && value.name
+                    ? value.name
+                    : value.value
+              }
+            ]
+          })
+        : []
+
+      return [
+        {
+          id: option.id,
+          currentValue:
+            'currentValue' in option && typeof option.currentValue === 'string'
+              ? option.currentValue
+              : null,
+          options
+        }
+      ]
+    })
+  }
+
+  private extractLegacyModes(payload: Record<string, unknown>): LegacyModeInfo {
+    const modes = payload.modes
+    if (!modes || typeof modes !== 'object') {
+      return { currentModeId: null }
+    }
+
+    return {
+      currentModeId:
+        'currentModeId' in modes && typeof modes.currentModeId === 'string'
+          ? modes.currentModeId
+          : null
+    }
+  }
+
+  private extractLegacyModels(payload: Record<string, unknown>): LegacyModelInfo {
+    const models = payload.models
+    if (!models || typeof models !== 'object') {
+      return { currentModelId: null, availableModels: [] }
+    }
+
+    const typedModels = models as {
+      availableModels?: unknown
+      currentModelId?: unknown
+    }
+
+    const availableModels = Array.isArray(typedModels.availableModels)
+      ? typedModels.availableModels.flatMap((model): AIModel[] => {
+          if (!model || typeof model !== 'object') {
+            return []
+          }
+
+          const id = 'modelId' in model && typeof model.modelId === 'string' ? model.modelId : null
+          if (!id) {
+            return []
+          }
+
+          const name = 'name' in model && typeof model.name === 'string' ? model.name : id
+          return [{ id, name, provider: 'cursor' }]
+        })
+      : []
+
+    return {
+      currentModelId:
+        typeof typedModels.currentModelId === 'string' ? typedModels.currentModelId : null,
+      availableModels
+    }
+  }
+
   private failPending(session: SessionState, error: Error): void {
     for (const request of session.pending.values()) {
       request.reject(error)
@@ -574,4 +741,4 @@ export class OpencodeProvider implements AIProviderInterface {
   }
 }
 
-export const opencodeProvider = new OpencodeProvider()
+export const cursorProvider = new CursorProvider()

@@ -30,7 +30,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     anthropic: { apiKey: '', enabled: true },
     openai: { apiKey: '', enabled: false },
     gemini: { apiKey: '', enabled: false },
-    opencode: { apiKey: '', enabled: false }
+    opencode: { apiKey: '', enabled: false },
+    cursor: { apiKey: '', enabled: false }
   },
   defaultProvider: 'anthropic',
   defaultModel: 'claude-sonnet-4-20250514',

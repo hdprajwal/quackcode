@@ -23,6 +23,7 @@ const providerLabels: Record<AIProvider, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
   gemini: 'Gemini',
+  cursor: 'Cursor',
   opencode: 'OpenCode'
 }
 

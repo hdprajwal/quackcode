@@ -15,7 +15,7 @@ export function registerAiIpc(): void {
     agentService.cancel(threadId)
   })
 
-  ipcMain.handle('ai:models', () => {
+  ipcMain.handle('ai:models', async () => {
     return aiService.listAllModels()
   })
 
