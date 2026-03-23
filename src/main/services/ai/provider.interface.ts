@@ -26,7 +26,7 @@ export interface AIProviderInterface {
 
   setApiKey(apiKey: string): void
 
-  listModels(): AIModel[]
+  listModels(): Promise<AIModel[]>
 
   sendMessage(
     messages: ChatMessage[],
@@ -38,10 +38,12 @@ export interface AIProviderInterface {
     context?: {
       threadId?: string
       cwd?: string
+      apiKeyOverride?: string | null
     }
   ): Promise<ChatMessage | null>
 
   verifyApiKey(apiKey: string): Promise<boolean>
 
   disposeThread?(threadId: string): Promise<void> | void
+  disposeAll?(): Promise<void> | void
 }

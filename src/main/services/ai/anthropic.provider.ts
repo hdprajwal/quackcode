@@ -19,16 +19,16 @@ export class AnthropicProvider implements AIProviderInterface {
   private authToken: string | null = null
 
   setApiKey(apiKey: string): void {
-    this.apiKey = apiKey
+    this.apiKey = apiKey.trim() || null
     this.authToken = null
   }
 
   setAuthToken(token: string): void {
-    this.authToken = token
+    this.authToken = token.trim() || null
     this.apiKey = null
   }
 
-  listModels(): AIModel[] {
+  async listModels(): Promise<AIModel[]> {
     return [
       { id: 'claude-opus-4-6', name: 'Claude Opus 4.6', provider: 'anthropic' },
       { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', provider: 'anthropic' },

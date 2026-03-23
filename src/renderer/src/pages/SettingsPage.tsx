@@ -68,6 +68,7 @@ export function SettingsPage(): React.JSX.Element {
                   <ProviderSettings provider="anthropic" label="Anthropic (Claude)" />
                   <ProviderSettings provider="openai" label="OpenAI" />
                   <ProviderSettings provider="gemini" label="Google (Gemini)" />
+                  <ProviderSettings provider="cursor" label="Cursor ACP" />
                   <ProviderSettings provider="opencode" label="OpenCode ACP" />
                 </div>
               </section>

@@ -7,10 +7,11 @@ export class OpenAIProvider implements AIProviderInterface {
   private client: OpenAI | null = null
 
   setApiKey(apiKey: string): void {
-    this.client = new OpenAI({ apiKey })
+    const trimmed = apiKey.trim()
+    this.client = trimmed ? new OpenAI({ apiKey: trimmed }) : null
   }
 
-  listModels(): AIModel[] {
+  async listModels(): Promise<AIModel[]> {
     return [
       { id: 'gpt-4o', name: 'GPT-4o', provider: 'openai' },
       { id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'openai' },

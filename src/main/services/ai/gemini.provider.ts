@@ -19,10 +19,11 @@ export class GeminiProvider implements AIProviderInterface {
   private client: GoogleGenAI | null = null
 
   setApiKey(apiKey: string): void {
-    this.client = new GoogleGenAI({ apiKey })
+    const trimmed = apiKey.trim()
+    this.client = trimmed ? new GoogleGenAI({ apiKey: trimmed }) : null
   }
 
-  listModels(): AIModel[] {
+  async listModels(): Promise<AIModel[]> {
     return [
       { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'gemini' },
       { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', provider: 'gemini' },
