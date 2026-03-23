@@ -54,7 +54,12 @@ export class OpencodeProvider implements AIProviderInterface {
   private sessions = new Map<string, SessionState>()
 
   setApiKey(apiKey: string): void {
-    this.apiKey = apiKey.trim() || null
+    const nextApiKey = apiKey.trim() || null
+    if (this.apiKey === nextApiKey) {
+      return
+    }
+
+    this.apiKey = nextApiKey
     this.modelsCache = null
   }
 

@@ -67,7 +67,12 @@ export class CursorProvider implements AIProviderInterface {
   private agentBinary: string | null = null
 
   setApiKey(apiKey: string): void {
-    this.apiKey = apiKey.trim() || null
+    const nextApiKey = apiKey.trim() || null
+    if (this.apiKey === nextApiKey) {
+      return
+    }
+
+    this.apiKey = nextApiKey
     this.modelsCache = null
   }
 
@@ -265,7 +270,7 @@ export class CursorProvider implements AIProviderInterface {
         timeout: 5000,
         stdio: 'ignore'
       })
-      if (!result.error) {
+      if (!result.error && result.status === 0) {
         this.agentBinary = candidate
         return candidate
       }
