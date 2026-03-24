@@ -349,33 +349,46 @@ export class AutomationService {
             'UPDATE automation_executions SET status = ?, completed_at = ? WHERE id = ?'
           ).run('completed', completedAt, executionId)
 
-          this.broadcastEvent({
-            type: 'automation:completed',
-            automation: this.get(automationId)!,
-            execution: {
-              ...execution,
-              status: 'completed',
-              completedAt
-            }
-          })
-        })
-        .catch((error: unknown) => {
-          const completedAt = new Date().toISOString()
-          const errorMsg = error instanceof Error ? error.message : 'Unknown error'
-          db.prepare(
-            'UPDATE automation_executions SET status = ?, error = ?, completed_at = ? WHERE id = ?'
-          ).run('failed', errorMsg, completedAt, executionId)
+.then(() => {
+  const completedAt = new Date().toISOString()
+  db.prepare(
+    'UPDATE automation_executions SET status = ?, completed_at = ? WHERE id = ?'
+  ).run('completed', completedAt, executionId)
 
-          this.broadcastEvent({
-            type: 'automation:failed',
-            automation: this.get(automationId)!,
-            execution: {
-              ...execution,
-              status: 'failed',
-              error: errorMsg,
-              completedAt
-            }
-          })
+  const currentAutomation = this.get(automationId)
+  if (!currentAutomation) return
+
+  this.broadcastEvent({
+    type: 'automation:completed',
+    automation: currentAutomation,
+    execution: {
+      ...execution,
+      status: 'completed',
+      completedAt
+    }
+  })
+})
+.catch((error: unknown) => {
+  const completedAt = new Date().toISOString()
+  const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+  db.prepare(
+    'UPDATE automation_executions SET status = ?, error = ?, completed_at = ? WHERE id = ?'
+  ).run('failed', errorMsg, completedAt, executionId)
+
+  const currentAutomation = this.get(automationId)
+  if (!currentAutomation) return
+
+  this.broadcastEvent({
+    type: 'automation:failed',
+    automation: currentAutomation,
+    execution: {
+      ...execution,
+      status: 'failed',
+      error: errorMsg,
+      completedAt
+    }
+  })
+})
         })
 
       return execution
