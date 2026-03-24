@@ -6,7 +6,7 @@ export function BottomBar(): React.JSX.Element {
   const project = useProjectStore((s) => s.project)
   const environmentMode = useProjectStore((s) => s.environmentMode)
   const { status } = useGitStatus()
-  console.log(status)
+
   return (
     <div className="flex h-8 items-center gap-3 border-t border-border px-3 text-xs text-muted-foreground">
       {project && status && (

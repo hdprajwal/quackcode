@@ -75,6 +75,9 @@ export function useThread(): {
   const switchThread = useCallback(
     async (threadId: string) => {
       setActiveThread(threadId)
+      // Switch back to chat view when selecting a thread
+      const { useUIStore } = await import('@renderer/stores/ui.store')
+      useUIStore.getState().setActiveView('chat')
       const thread = useThreadStore.getState().threads.find((t) => t.id === threadId)
       if (thread) {
         const project = useProjectStore

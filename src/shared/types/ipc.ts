@@ -12,6 +12,13 @@ import type {
 import type { GitStatus, GitDiff, GitCommitParams, GitWorktreeParams, GitWorktreeInfo } from './git'
 import type { AppSettings, ProviderConfig } from './settings'
 import type { Project } from './project'
+import type {
+  Automation,
+  AutomationExecution,
+  AutomationEvent,
+  CreateAutomationParams,
+  UpdateAutomationParams
+} from './automation'
 
 // Invoke channels (renderer -> main, returns a value)
 export interface InvokeChannels {
@@ -65,11 +72,22 @@ export interface InvokeChannels {
   'auth:claudePro:connect': () => { success: boolean; subscriptionType?: string; error?: string }
   'auth:claudePro:verify': () => boolean
   'auth:claudePro:logout': () => void
+
+  // Automations
+  'automation:list': (projectId: string) => Automation[]
+  'automation:listAll': () => Automation[]
+  'automation:get': (automationId: string) => Automation | null
+  'automation:create': (params: CreateAutomationParams) => Automation
+  'automation:update': (params: UpdateAutomationParams) => Automation
+  'automation:delete': (automationId: string) => void
+  'automation:execute': (automationId: string) => AutomationExecution
+  'automation:executions': (automationId: string) => AutomationExecution[]
 }
 
 // Push channels (main -> renderer)
 export interface PushChannels {
   'ai:stream': StreamChunk
+  'automation:event': AutomationEvent
 }
 
 // Channel name types

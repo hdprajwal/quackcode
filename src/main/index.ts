@@ -5,6 +5,7 @@ import icon from '../../resources/icon.png?asset'
 import { initDatabase, closeDatabase } from './db/database'
 import { registerAllIpc } from './ipc'
 import { aiService } from './services/ai/ai.service'
+import { automationService } from './services/automation.service'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -62,6 +63,9 @@ app.whenReady().then(() => {
   // Register all IPC handlers
   registerAllIpc()
 
+  // Start automation schedulers
+  automationService.startAllSchedulers()
+
   createWindow()
 
   app.on('activate', () => {
@@ -76,6 +80,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  automationService.stopAllSchedulers()
   void aiService.disposeAll()
   closeDatabase()
 })

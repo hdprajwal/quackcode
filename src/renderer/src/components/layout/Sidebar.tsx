@@ -51,7 +51,7 @@ import {
 } from '@renderer/components/ui/sidebar'
 
 export function Sidebar(): React.JSX.Element {
-  const { sidebarOpen } = useUIStore()
+  const { sidebarOpen, activeView, setActiveView } = useUIStore()
   const navigate = useNavigate()
   const {
     recentProjects: projects,
@@ -189,7 +189,13 @@ export function Sidebar(): React.JSX.Element {
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                   <SidebarMenuItem>
-                    <SidebarMenuButton disabled>
+                    <SidebarMenuButton
+                      isActive={activeView === 'automations'}
+                      onClick={() => {
+                        navigate({ to: '/' })
+                        setActiveView(activeView === 'automations' ? 'chat' : 'automations')
+                      }}
+                    >
                       <Clock className="h-4 w-4" />
                       <span>Automations</span>
                     </SidebarMenuButton>
