@@ -145,9 +145,7 @@ function rebuildAutomationsTable(db: Database.Database, columns: Set<string>): v
     ? "CASE WHEN project_ids IS NOT NULL AND project_ids != '' THEN project_ids ELSE COALESCE(project_id, '') END"
     : "COALESCE(project_id, '')"
 
-  db.exec('PRAGMA foreign_keys = OFF')
-
-  try {
+  const migrate = db.transaction(() => {
     db.exec(`
       CREATE TABLE automations_migrated (
         id TEXT PRIMARY KEY,
@@ -210,6 +208,12 @@ function rebuildAutomationsTable(db: Database.Database, columns: Set<string>): v
 
     db.exec('DROP TABLE automations')
     db.exec('ALTER TABLE automations_migrated RENAME TO automations')
+  })
+
+  db.exec('PRAGMA foreign_keys = OFF')
+
+  try {
+    migrate()
   } finally {
     db.exec('PRAGMA foreign_keys = ON')
   }
