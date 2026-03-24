@@ -5,6 +5,7 @@ import { registerProjectIpc } from './project.ipc'
 import { registerThreadIpc } from './thread.ipc'
 import { registerAiIpc } from './ai.ipc'
 import { registerEditorIpc } from './editor.ipc'
+import { registerAutomationIpc } from './automation.ipc'
 
 export function registerAllIpc(): void {
   registerSettingsIpc()
@@ -14,4 +15,5 @@ export function registerAllIpc(): void {
   registerThreadIpc()
   registerAiIpc()
   registerEditorIpc()
+  registerAutomationIpc()
 }
