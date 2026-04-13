@@ -84,10 +84,7 @@ function StatusIndicator({
   }
   return (
     <span
-      className={cn(
-        'size-2 shrink-0 rounded-full',
-        isActive ? 'bg-sky-400' : 'bg-sky-500/60'
-      )}
+      className={cn('size-2 shrink-0 rounded-full', isActive ? 'bg-sky-400' : 'bg-sky-500/60')}
     />
   )
 }
@@ -187,29 +184,29 @@ export function ThreadItem({ thread, siblingIds }: ThreadItemProps): React.JSX.E
 
   const row = (
     <SidebarMenuItem className={cn('group/thread', isSelected && 'rounded-md bg-white/[0.06]')}>
-      <div className="flex items-center gap-1">
-        {editing ? (
-          <div className="flex flex-1 items-center gap-2 rounded-md bg-white/[0.04] px-2 py-1.5">
-            <StatusIndicator
-              status={thread.status}
-              isActive={isActive}
-              pendingApproval={thread.hasPendingApproval}
-            />
-            <input
-              autoFocus
-              value={draftTitle}
-              onChange={(e) => setDraftTitle(e.target.value)}
-              onBlur={commitRename}
-              onKeyDown={handleRenameKey}
-              className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none"
-            />
-          </div>
-        ) : (
+      {editing ? (
+        <div className="flex flex-1 items-center gap-2 rounded-md bg-white/[0.04] px-2 py-1.5">
+          <StatusIndicator
+            status={thread.status}
+            isActive={isActive}
+            pendingApproval={thread.hasPendingApproval}
+          />
+          <input
+            autoFocus
+            value={draftTitle}
+            onChange={(e) => setDraftTitle(e.target.value)}
+            onBlur={commitRename}
+            onKeyDown={handleRenameKey}
+            className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none"
+          />
+        </div>
+      ) : (
+        <div className="relative flex items-center">
           <SidebarMenuButton
             variant="ghost"
             isActive={isActive}
             className={cn(
-              'min-w-0 flex-1 gap-3 rounded-md px-2',
+              'min-h-7 min-w-0 flex-1 gap-3 rounded-md px-2 py-1',
               archived && 'opacity-70'
             )}
             onClick={handleActivate}
@@ -229,58 +226,60 @@ export function ThreadItem({ thread, siblingIds }: ThreadItemProps): React.JSX.E
             >
               {thread.title}
             </span>
-            <span className="shrink-0 text-xs text-white/35">
+            <span
+              className={cn(
+                'ml-auto shrink-0 text-xs text-white/35 transition-opacity',
+                isActive ? 'opacity-0' : 'group-hover/thread:opacity-0'
+              )}
+            >
               {formatRelativeTime(thread.lastActivityAt || thread.updatedAt)}
             </span>
           </SidebarMenuButton>
-        )}
 
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            children={
-              <SidebarMenuAction
-                className="text-white/0 group-hover/thread:text-white/35"
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={(event) => event.stopPropagation()}
-                aria-label={`Open ${thread.title} menu`}
-              >
-                <MoreHorizontal className="h-3.5 w-3.5" />
-              </SidebarMenuAction>
-            }
-          />
-          <DropdownMenuContent
-            align="end"
-            alignOffset={6}
-            sideOffset={8}
-            className="w-auto min-w-[11rem] border-white/10 bg-[#1f1f1d] text-white shadow-lg ring-white/10"
-          >
-            {menuItems.map((item) => (
-              <DropdownMenuItem
-                key={item.label}
-                disabled={item.disabled}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  item.onSelect()
-                }}
-              >
-                <item.icon className="h-3.5 w-3.5" />
-                {item.label}
-              </DropdownMenuItem>
-            ))}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              variant="destructive"
-              onClick={(event) => {
-                event.stopPropagation()
-                void deleteThread(thread.id)
-              }}
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <SidebarMenuAction
+                  className={cn(
+                    'absolute right-1 top-1/2 size-6 -translate-y-1/2 text-white/55 transition-opacity hover:bg-transparent hover:text-white',
+                    isActive ? 'opacity-100' : 'opacity-0 group-hover/thread:opacity-100'
+                  )}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => event.stopPropagation()}
+                  aria-label={`Open ${thread.title} menu`}
+                />
+              }
             >
-              <Trash2 className="h-3.5 w-3.5" />
-              Delete thread
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+              <MoreHorizontal className="h-3.5 w-3.5" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              alignOffset={6}
+              sideOffset={8}
+              className="w-auto min-w-[11rem] border-white/10 bg-[#1f1f1d] text-white shadow-lg ring-white/10"
+            >
+              {menuItems.map((item) => (
+                <DropdownMenuItem
+                  key={item.label}
+                  disabled={item.disabled}
+                  onClick={() => item.onSelect()}
+                >
+                  <item.icon className="h-3.5 w-3.5" />
+                  {item.label}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => void deleteThread(thread.id)}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete thread
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      )}
     </SidebarMenuItem>
   )
 
@@ -289,11 +288,7 @@ export function ThreadItem({ thread, siblingIds }: ThreadItemProps): React.JSX.E
       <ContextMenuTrigger render={<div className="contents" />}>{row}</ContextMenuTrigger>
       <ContextMenuContent className="w-44 border-white/10 bg-[#1f1f1d] text-white shadow-lg ring-white/10">
         {menuItems.map((item) => (
-          <ContextMenuItem
-            key={item.label}
-            disabled={item.disabled}
-            onClick={item.onSelect}
-          >
+          <ContextMenuItem key={item.label} disabled={item.disabled} onClick={item.onSelect}>
             <item.icon className="h-3.5 w-3.5" />
             {item.label}
           </ContextMenuItem>

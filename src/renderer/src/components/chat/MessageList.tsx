@@ -92,7 +92,6 @@ export function MessageList(): React.JSX.Element {
   const messages = useThreadStore((s) => s.messages)
   const pendingMessage = useThreadStore((s) => s.pendingMessage)
   const isStreaming = useThreadStore((s) => s.isStreaming)
-  const activeThreadId = useThreadStore((s) => s.activeThreadId)
 
   const { scrollRef } = useConversation()
 

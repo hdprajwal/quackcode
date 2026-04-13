@@ -10,22 +10,22 @@ import type { Project, Thread } from '@shared/types'
 import {
   ChevronDown,
   ChevronRight,
+  ClipboardCopy,
   Clock,
   FolderPlus,
   Grid2X2Plus,
-  MessageSquarePlus,
-  MoreHorizontal,
   Settings,
   SquarePen,
   Trash2
 } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from '@renderer/components/ui/dropdown-menu'
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger
+} from '@renderer/components/ui/context-menu'
 import {
   Dialog,
   DialogContent,
@@ -37,7 +37,6 @@ import {
 import { ScrollArea } from '@renderer/components/ui/scroll-area'
 import { ThreadGroup } from '@renderer/components/sidebar/ThreadGroup'
 import { ArchivedThreadsSection } from '@renderer/components/sidebar/ArchivedThreadsSection'
-import { ThreadSelectionBar } from '@renderer/components/sidebar/ThreadSelectionBar'
 import {
   Sidebar as SidebarShell,
   SidebarContent,
@@ -140,6 +139,9 @@ export function Sidebar(): React.JSX.Element {
     }))
   }
 
+  // Click anywhere on the project row — toggles expansion and marks the
+  // project as active. Matches the archived-threads section's behavior so
+  // the user doesn't have to aim for the tiny chevron target.
   const handleProjectClick = (project: Project): void => {
     const state = useThreadStore.getState()
     const activeThread = state.threads.find((thread) => thread.id === state.activeThreadId)
@@ -150,7 +152,15 @@ export function Sidebar(): React.JSX.Element {
     }
 
     setProject(project)
-    setExpandedProjects((prev) => ({ ...prev, [project.id]: true }))
+    toggleProject(project.id)
+  }
+
+  const handleCopyProjectPath = async (project: Project): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(project.path)
+    } catch {
+      // Clipboard access can fail in some contexts — silently ignore.
+    }
   }
 
   const handleAddProject = async (): Promise<void> => {
@@ -261,72 +271,60 @@ export function Sidebar(): React.JSX.Element {
 
                       return (
                         <SidebarMenuItem key={project.id} className="group/project">
-                          <div className="flex items-center gap-1">
-                            <SidebarMenuAction
-                              className="size-6"
-                              onClick={() => toggleProject(project.id)}
-                              aria-label={
-                                isExpanded ? `Collapse ${project.name}` : `Expand ${project.name}`
-                              }
-                            >
-                              {isExpanded ? (
-                                <ChevronDown className="h-3.5 w-3.5" />
-                              ) : (
-                                <ChevronRight className="h-3.5 w-3.5" />
-                              )}
-                            </SidebarMenuAction>
-
-                            <SidebarMenuButton
-                              variant="ghost"
-                              className="min-w-0 flex-1 rounded-md px-2"
-                              onClick={() => handleProjectClick(project)}
-                              tooltip={project.path}
-                            >
-                              <span className="truncate font-semibold tracking-[-0.02em] text-white/92">
-                                {project.name}
-                              </span>
-                              {projectThreads.length > 0 ? (
-                                <span className="ml-auto shrink-0 text-xs text-white/35">
-                                  {projectThreads.length}
-                                </span>
-                              ) : null}
-                            </SidebarMenuButton>
-
-                            <DropdownMenu>
-                              <DropdownMenuTrigger>
-                                <SidebarMenuAction
-                                  className="text-white/0 group-hover/project:text-white/35"
-                                  aria-label={`Open ${project.name} menu`}
+                          <ContextMenu>
+                            <ContextMenuTrigger render={<div className="contents" />}>
+                              <div className="relative flex items-center">
+                                <SidebarMenuButton
+                                  variant="ghost"
+                                  className="min-h-7 min-w-0 flex-1 rounded-md px-1.5 py-1"
+                                  onClick={() => handleProjectClick(project)}
+                                  tooltip={project.path}
                                 >
-                                  <MoreHorizontal className="h-3.5 w-3.5" />
-                                </SidebarMenuAction>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent
-                                align="end"
-                                className="w-44 border-white/10 bg-[#1f1f1d] text-white shadow-lg ring-white/10"
-                              >
-                                <DropdownMenuItem
+                                  {isExpanded ? (
+                                    <ChevronDown className="h-3.5 w-3.5 shrink-0 text-white/45" />
+                                  ) : (
+                                    <ChevronRight className="h-3.5 w-3.5 shrink-0 text-white/45" />
+                                  )}
+                                  <span className="truncate font-semibold tracking-[-0.02em] text-white/92">
+                                    {project.name}
+                                  </span>
+                                  {projectThreads.length > 0 ? (
+                                    <span className="ml-auto shrink-0 text-xs text-white/35 transition-opacity group-hover/project:opacity-0">
+                                      {projectThreads.length}
+                                    </span>
+                                  ) : null}
+                                </SidebarMenuButton>
+
+                                <SidebarMenuAction
+                                  className="absolute right-1 top-1/2 size-6 -translate-y-1/2 text-white/55 opacity-0 transition-opacity hover:bg-transparent hover:text-white group-hover/project:opacity-100"
                                   onClick={(event) => {
                                     event.stopPropagation()
                                     void handleCreateThread(project)
                                   }}
+                                  aria-label={`New thread in ${project.name}`}
+                                  title="New thread"
                                 >
-                                  <MessageSquarePlus className="h-3.5 w-3.5" />
-                                  New thread
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  variant="destructive"
-                                  onClick={(event) => {
-                                    event.stopPropagation()
-                                    setProjectToDelete(project)
-                                  }}
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                  Delete project
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
+                                  <SquarePen className="h-3.5 w-3.5" />
+                                </SidebarMenuAction>
+                              </div>
+                            </ContextMenuTrigger>
+                            <ContextMenuContent className="w-44 border-white/10 bg-[#1f1f1d] text-white shadow-lg ring-white/10">
+                              <ContextMenuItem
+                                onClick={() => void handleCopyProjectPath(project)}
+                              >
+                                <ClipboardCopy className="h-3.5 w-3.5" />
+                                Copy path
+                              </ContextMenuItem>
+                              <ContextMenuSeparator />
+                              <ContextMenuItem
+                                variant="destructive"
+                                onClick={() => setProjectToDelete(project)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                Delete project
+                              </ContextMenuItem>
+                            </ContextMenuContent>
+                          </ContextMenu>
 
                           {isExpanded && (
                             <SidebarMenuSub className="mt-1">
@@ -342,8 +340,6 @@ export function Sidebar(): React.JSX.Element {
                 </SidebarGroupContent>
               </SidebarGroup>
             </ScrollArea>
-
-            <ThreadSelectionBar />
           </SidebarContent>
           <SidebarFooter className="p-3">
             <Button

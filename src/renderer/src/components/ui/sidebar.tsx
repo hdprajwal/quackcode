@@ -149,7 +149,7 @@ function SidebarMenuSub({ className, ...props }: React.ComponentProps<'ul'>) {
   return (
     <ul
       data-slot="sidebar-menu-sub"
-      className={cn('ml-3 flex flex-col gap-1 border-l border-white/7 pl-3', className)}
+      className={cn('flex flex-col gap-0.5 pl-5', className)}
       {...props}
     />
   )

@@ -25,7 +25,11 @@ export default defineConfig(
     },
     rules: {
       ...eslintPluginReactHooks.configs.recommended.rules,
-      ...eslintPluginReactRefresh.configs.vite.rules
+      ...eslintPluginReactRefresh.configs.vite.rules,
+      // Base UI primitives use the `render` prop with another component as
+      // children for composition; that pattern triggers this rule even though
+      // it's intentional and idiomatic.
+      'react/no-children-prop': 'off'
     }
   },
   eslintConfigPrettier
