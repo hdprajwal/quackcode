@@ -95,7 +95,7 @@ export function ThreadActivityPanel(): React.JSX.Element | null {
           ) : null}
         </button>
         {open ? (
-          <ol className="divide-y divide-white/6 border-t border-white/6">
+          <ol className="max-h-[40vh] divide-y divide-white/6 overflow-y-auto border-t border-white/6">
             {groups.map((group, gi) => (
               <li key={group.turnId ?? `turn-${gi}`}>
                 <div className="flex items-center gap-2 px-3 py-1.5 text-[11px] uppercase tracking-[0.12em] text-white/35">

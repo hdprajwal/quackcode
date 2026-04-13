@@ -1,4 +1,4 @@
-import { useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react'
+import { memo, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import {
   Archive,
   ArchiveRestore,
@@ -89,8 +89,10 @@ function StatusIndicator({
   )
 }
 
-export function ThreadItem({ thread, siblingIds }: ThreadItemProps): React.JSX.Element {
-  const activeThreadId = useThreadStore((s) => s.activeThreadId)
+function ThreadItemInner({ thread, siblingIds }: ThreadItemProps): React.JSX.Element {
+  // Scoped boolean subscription — this row only re-renders when its own
+  // active-ness flips, not on every activeThreadId change.
+  const isActive = useThreadStore((s) => s.activeThreadId === thread.id)
   const isSelected = useThreadSelectionStore((s) => s.selectedIds.has(thread.id))
   const anchorId = useThreadSelectionStore((s) => s.anchorId)
   const selectionSize = useThreadSelectionStore((s) => s.selectedIds.size)
@@ -99,16 +101,15 @@ export function ThreadItem({ thread, siblingIds }: ThreadItemProps): React.JSX.E
   const selectRange = useThreadSelectionStore((s) => s.selectRange)
   const clearSelection = useThreadSelectionStore((s) => s.clear)
 
-  const { switchThread, deleteThread } = useThread()
+  const { switchThread, deleteThread, prefetchThread } = useThread()
   const { archive, unarchive, rename, moveUp, moveDown } = useThreadActions()
 
   const [editing, setEditing] = useState(false)
   const [draftTitle, setDraftTitle] = useState(thread.title)
 
-  const isActive = thread.id === activeThreadId
   const archived = thread.archivedAt !== null
 
-  const handleActivate = async (event: MouseEvent): Promise<void> => {
+  const handleActivate = (event: MouseEvent): void => {
     const meta = event.metaKey || event.ctrlKey
     const shift = event.shiftKey
 
@@ -123,7 +124,7 @@ export function ThreadItem({ thread, siblingIds }: ThreadItemProps): React.JSX.E
 
     if (selectionSize > 0) clearSelection()
     selectOnly(thread.id)
-    await switchThread(thread.id)
+    switchThread(thread.id)
   }
 
   const startRename = (): void => {
@@ -148,39 +149,36 @@ export function ThreadItem({ thread, siblingIds }: ThreadItemProps): React.JSX.E
     }
   }
 
-  const menuItems = useMemo(
-    () => [
-      {
-        label: 'Rename',
-        icon: Pencil,
-        onSelect: () => startRename()
-      },
-      {
-        label: 'Move up',
-        icon: ArrowUp,
-        disabled: archived,
-        onSelect: () => void moveUp(thread.id)
-      },
-      {
-        label: 'Move down',
-        icon: ArrowDown,
-        disabled: archived,
-        onSelect: () => void moveDown(thread.id)
-      },
-      archived
-        ? {
-            label: 'Unarchive',
-            icon: ArchiveRestore,
-            onSelect: () => void unarchive(thread.id)
-          }
-        : {
-            label: 'Archive',
-            icon: Archive,
-            onSelect: () => void archive(thread.id)
-          }
-    ],
-    [archived, thread.id, archive, unarchive, moveUp, moveDown]
-  )
+  const menuItems = [
+    {
+      label: 'Rename',
+      icon: Pencil,
+      onSelect: () => startRename()
+    },
+    {
+      label: 'Move up',
+      icon: ArrowUp,
+      disabled: archived,
+      onSelect: () => void moveUp(thread.id)
+    },
+    {
+      label: 'Move down',
+      icon: ArrowDown,
+      disabled: archived,
+      onSelect: () => void moveDown(thread.id)
+    },
+    archived
+      ? {
+          label: 'Unarchive',
+          icon: ArchiveRestore,
+          onSelect: () => void unarchive(thread.id)
+        }
+      : {
+          label: 'Archive',
+          icon: Archive,
+          onSelect: () => void archive(thread.id)
+        }
+  ]
 
   const row = (
     <SidebarMenuItem className={cn('group/thread', isSelected && 'rounded-md bg-white/[0.06]')}>
@@ -211,6 +209,8 @@ export function ThreadItem({ thread, siblingIds }: ThreadItemProps): React.JSX.E
             )}
             onClick={handleActivate}
             onDoubleClick={startRename}
+            onMouseEnter={() => prefetchThread(thread.id)}
+            onFocus={() => prefetchThread(thread.id)}
             tooltip={thread.title}
           >
             <StatusIndicator
@@ -269,10 +269,7 @@ export function ThreadItem({ thread, siblingIds }: ThreadItemProps): React.JSX.E
                 </DropdownMenuItem>
               ))}
               <DropdownMenuSeparator />
-              <DropdownMenuItem
-                variant="destructive"
-                onClick={() => void deleteThread(thread.id)}
-              >
+              <DropdownMenuItem variant="destructive" onClick={() => void deleteThread(thread.id)}>
                 <Trash2 className="h-3.5 w-3.5" />
                 Delete thread
               </DropdownMenuItem>
@@ -302,3 +299,18 @@ export function ThreadItem({ thread, siblingIds }: ThreadItemProps): React.JSX.E
     </ContextMenu>
   )
 }
+
+function areSiblingIdsEqual(a: readonly string[], b: readonly string[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+  return true
+}
+
+// Sidebar re-renders often (thread updates, streaming, selection). Memo keeps
+// rows whose thread reference and siblings haven't changed out of the render loop.
+export const ThreadItem = memo(
+  ThreadItemInner,
+  (prev, next) =>
+    prev.thread === next.thread && areSiblingIdsEqual(prev.siblingIds, next.siblingIds)
+)

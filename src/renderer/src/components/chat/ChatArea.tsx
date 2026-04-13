@@ -1,9 +1,13 @@
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import {
   Conversation,
   ConversationScrollButton
 } from '@renderer/components/ai-elements/conversation'
-import { useThreadStore } from '@renderer/stores/thread.store'
+import {
+  useThreadStore,
+  selectMessagesForThread,
+  selectPendingForThread
+} from '@renderer/stores/thread.store'
 import { useChat } from '@renderer/hooks/useChat'
 import { useThread } from '@renderer/hooks/useThread'
 import { NewThreadView } from './NewThreadView'
@@ -14,8 +18,10 @@ import { ThreadActivityPanel } from './ThreadActivityPanel'
 
 export function ChatArea(): React.JSX.Element {
   const activeThreadId = useThreadStore((s) => s.activeThreadId)
-  const messages = useThreadStore((s) => s.messages)
-  const pendingMessage = useThreadStore((s) => s.pendingMessage)
+  const messagesSelector = useMemo(() => selectMessagesForThread(activeThreadId), [activeThreadId])
+  const pendingSelector = useMemo(() => selectPendingForThread(activeThreadId), [activeThreadId])
+  const messages = useThreadStore(messagesSelector)
+  const pendingMessage = useThreadStore(pendingSelector)
   const { sendMessage, cancelStream } = useChat()
   const { createThread } = useThread()
 

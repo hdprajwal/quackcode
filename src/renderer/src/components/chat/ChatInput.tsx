@@ -46,7 +46,9 @@ interface ChatInputProps {
 export function ChatInput({ onSend, onCancel }: ChatInputProps): React.JSX.Element {
   const [input, setInput] = useState('')
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false)
-  const isStreaming = useThreadStore((s) => s.isStreaming)
+  const isStreaming = useThreadStore((s) =>
+    s.activeThreadId ? Boolean(s.streamingByThreadId[s.activeThreadId]) : false
+  )
   const project = useProjectStore((s) => s.project)
   const { models, selectedModel, setSelectedModel, setSelectedProvider } = useSettingsStore()
   const { updateSettings } = useSettings()

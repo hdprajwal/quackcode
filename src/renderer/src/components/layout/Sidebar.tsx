@@ -63,7 +63,7 @@ export function Sidebar(): React.JSX.Element {
   } = useProjectStore()
   const threads = useThreadStore((s) => s.threads)
   const { createThread, switchThread, loadAllThreads } = useThread()
-  const { setActiveThread, setMessages, removeProjectThreads } = useThreadStore()
+  const { setActiveThread, removeProjectThreads } = useThreadStore()
   const clearSelection = useThreadSelectionStore((s) => s.clear)
 
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({})
@@ -147,7 +147,6 @@ export function Sidebar(): React.JSX.Element {
 
     if (activeThread?.projectId !== project.id) {
       setActiveThread(null)
-      setMessages([])
     }
 
     setProject(project)
@@ -171,7 +170,6 @@ export function Sidebar(): React.JSX.Element {
     setRecentProjects(await invoke<Project[]>('project:list'))
     await loadAllThreads()
     setActiveThread(null)
-    setMessages([])
     navigate({ to: '/' })
   }
 
@@ -193,7 +191,6 @@ export function Sidebar(): React.JSX.Element {
 
     if (wasActiveProject) {
       setActiveThread(null)
-      setMessages([])
       navigate({ to: '/' })
     }
 

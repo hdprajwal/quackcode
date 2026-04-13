@@ -1,6 +1,11 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { useThreadStore } from '@renderer/stores/thread.store'
+import {
+  useThreadStore,
+  selectMessagesForThread,
+  selectPendingForThread,
+  selectIsStreamingForThread
+} from '@renderer/stores/thread.store'
 import { useConversation } from '@renderer/components/ai-elements/conversation'
 import { ToolCallMessage } from './ToolCallMessage'
 import { Shimmer } from '@renderer/components/ai-elements/shimmer'
@@ -89,16 +94,47 @@ function PendingRow({
 }
 
 export function MessageList(): React.JSX.Element {
-  const messages = useThreadStore((s) => s.messages)
-  const pendingMessage = useThreadStore((s) => s.pendingMessage)
-  const isStreaming = useThreadStore((s) => s.isStreaming)
+  const activeThreadId = useThreadStore((s) => s.activeThreadId)
+  const messagesSelector = useMemo(() => selectMessagesForThread(activeThreadId), [activeThreadId])
+  const pendingSelector = useMemo(() => selectPendingForThread(activeThreadId), [activeThreadId])
+  const streamingSelector = useMemo(
+    () => selectIsStreamingForThread(activeThreadId),
+    [activeThreadId]
+  )
+  const messages = useThreadStore(messagesSelector) as ChatMessage[]
+  const pendingMessage = useThreadStore(pendingSelector)
+  const isStreaming = useThreadStore(streamingSelector)
 
   const { scrollRef } = useConversation()
 
   // Stable identity of the row stream — recompute only when source data changes.
   const rows = useMemo<Row[]>(() => {
     const out: Row[] = []
-    for (const msg of messages) out.push({ kind: 'message', key: msg.id, msg })
+    // Persistence stores tool results on a separate role='tool' message. Merge them
+    // back onto the preceding assistant message so the UI can pair each call with
+    // its result (and stop the spinner).
+    const mergedMessages: ChatMessage[] = []
+    for (const msg of messages) {
+      if (msg.role === 'tool' && msg.toolResults?.length) {
+        const ids = new Set(msg.toolResults.map((r) => r.toolCallId))
+        let absorbed = false
+        for (let i = mergedMessages.length - 1; i >= 0; i--) {
+          const prev = mergedMessages[i]
+          if (prev.role === 'user') break
+          if (prev.role === 'assistant' && prev.toolCalls?.some((tc) => ids.has(tc.id))) {
+            mergedMessages[i] = {
+              ...prev,
+              toolResults: [...(prev.toolResults ?? []), ...msg.toolResults]
+            }
+            absorbed = true
+            break
+          }
+        }
+        if (absorbed) continue
+      }
+      mergedMessages.push(msg)
+    }
+    for (const msg of mergedMessages) out.push({ kind: 'message', key: msg.id, msg })
     if (pendingMessage) {
       out.push({
         kind: 'pending',

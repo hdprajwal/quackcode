@@ -10,7 +10,8 @@ export function useChat(): {
   cancelStream: () => void
   loadMessages: (threadId: string) => Promise<void>
 } {
-  const { activeThreadId, handleStreamChunk, setMessages, setIsStreaming } = useThreadStore()
+  const { activeThreadId, handleStreamChunk, appendMessageToThread, setMessagesForThread, setIsStreaming } =
+    useThreadStore()
   const { environmentMode, worktreePath } = useProjectStore()
   const { selectedModel, selectedProvider } = useSettingsStore()
 
@@ -23,25 +24,24 @@ export function useChat(): {
 
   const sendMessage = useCallback(
     async (content: string) => {
-      const activeThreadId = useThreadStore.getState().activeThreadId
+      const threadId = useThreadStore.getState().activeThreadId
       const project = useProjectStore.getState().project
-      if (!activeThreadId || !project) return
+      if (!threadId || !project) return
 
       // Optimistically add user message
       const userMessage: Message = {
         id: crypto.randomUUID(),
-        threadId: activeThreadId,
+        threadId,
         role: 'user',
         content,
         createdAt: new Date().toISOString()
       }
 
-      const currentMessages = useThreadStore.getState().messages
-      setMessages([...currentMessages, userMessage])
-      setIsStreaming(true)
+      appendMessageToThread(threadId, userMessage)
+      setIsStreaming(threadId, true)
 
       await invoke('ai:send', {
-        threadId: activeThreadId,
+        threadId,
         content,
         provider: selectedProvider,
         model: selectedModel,
@@ -50,20 +50,30 @@ export function useChat(): {
         worktreePath
       })
     },
-    [selectedProvider, selectedModel, environmentMode, worktreePath, setMessages, setIsStreaming]
+    [
+      selectedProvider,
+      selectedModel,
+      environmentMode,
+      worktreePath,
+      appendMessageToThread,
+      setIsStreaming
+    ]
   )
 
   const cancelStream = useCallback(() => {
     if (activeThreadId) {
       invoke('ai:cancel', activeThreadId)
-      setIsStreaming(false)
+      setIsStreaming(activeThreadId, false)
     }
-  }, [activeThreadId])
+  }, [activeThreadId, setIsStreaming])
 
-  const loadMessages = useCallback(async (threadId: string) => {
-    const msgs = await invoke<Message[]>('message:list', threadId)
-    setMessages(msgs)
-  }, [])
+  const loadMessages = useCallback(
+    async (threadId: string) => {
+      const msgs = await invoke<Message[]>('message:list', threadId)
+      setMessagesForThread(threadId, msgs)
+    },
+    [setMessagesForThread]
+  )
 
   return { sendMessage, cancelStream, loadMessages }
 }

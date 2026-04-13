@@ -91,7 +91,14 @@ export class AgentService {
         iterations++
         const messageId = uuidv4()
 
-        const callbacks = this.createStreamCallbacks(threadId, messageId)
+        const streamedToolCallIds = new Set<string>()
+        const streamedToolResultIds = new Set<string>()
+        const callbacks = this.createStreamCallbacks(
+          threadId,
+          messageId,
+          streamedToolCallIds,
+          streamedToolResultIds
+        )
 
         const result = await aiProvider.sendMessage(
           chatMessages,
@@ -126,6 +133,29 @@ export class AgentService {
             toolResults: result.toolResults
           })
 
+          // The SDK ran tools internally, so the streaming callbacks may not have
+          // emitted tool_call/tool_result chunks. Replay them now so the renderer's
+          // pendingMessage has the calls (with final arguments) and results paired
+          // up — otherwise spinners never stop and arguments render as `{}`.
+          for (const tc of result.toolCalls) {
+            if (streamedToolCallIds.has(tc.id)) continue
+            this.sendChunk(threadId, {
+              threadId,
+              messageId,
+              type: 'tool_call_start',
+              toolCall: { id: tc.id, name: tc.name, arguments: tc.arguments }
+            })
+          }
+          for (const tr of result.toolResults) {
+            if (streamedToolResultIds.has(tr.toolCallId)) continue
+            this.sendChunk(threadId, {
+              threadId,
+              messageId: uuidv4(),
+              type: 'tool_result',
+              toolResult: { toolCallId: tr.toolCallId, content: tr.content, isError: tr.isError }
+            })
+          }
+
           // Mirror the tool activity onto the event log so the timeline can replay it.
           const resultsById = new Map(result.toolResults.map((r) => [r.toolCallId, r]))
           for (const tc of result.toolCalls) {
@@ -147,8 +177,7 @@ export class AgentService {
                 summary: tr.isError ? `${tc.name} failed` : `${tc.name} completed`,
                 payload: {
                   toolCallId: tc.id,
-                  detail:
-                    tr.content.length > 500 ? `${tr.content.slice(0, 500)}…` : tr.content
+                  detail: tr.content.length > 500 ? `${tr.content.slice(0, 500)}…` : tr.content
                 }
               })
             }
@@ -205,7 +234,8 @@ export class AgentService {
               summary: isError ? `${tc.name} failed` : `${tc.name} completed`,
               payload: {
                 toolCallId: tc.id,
-                detail: resultContent.length > 500 ? `${resultContent.slice(0, 500)}…` : resultContent
+                detail:
+                  resultContent.length > 500 ? `${resultContent.slice(0, 500)}…` : resultContent
               }
             })
 
@@ -325,7 +355,12 @@ Mode: ${environmentMode}
 </principles>`
   }
 
-  private createStreamCallbacks(threadId: string, messageId: string): StreamCallbacks {
+  private createStreamCallbacks(
+    threadId: string,
+    messageId: string,
+    streamedToolCallIds: Set<string>,
+    streamedToolResultIds: Set<string>
+  ): StreamCallbacks {
     return {
       onText: (text) => {
         this.sendChunk(threadId, {
@@ -336,6 +371,7 @@ Mode: ${environmentMode}
         })
       },
       onToolCall: (id, name, args) => {
+        streamedToolCallIds.add(id)
         this.sendChunk(threadId, {
           threadId,
           messageId,
@@ -350,6 +386,15 @@ Mode: ${environmentMode}
           type: 'tool_call_delta',
           toolCall: { id },
           content: argsDelta
+        })
+      },
+      onToolResult: (result) => {
+        streamedToolResultIds.add(result.toolCallId)
+        this.sendChunk(threadId, {
+          threadId,
+          messageId: uuidv4(),
+          type: 'tool_result',
+          toolResult: result
         })
       },
       onError: (error) => {
