@@ -2,26 +2,27 @@
 
 import type { ComponentProps, ReactNode } from 'react'
 
-import { Badge } from '@renderer/components/ui/badge'
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger
 } from '@renderer/components/ui/collapsible'
 import { cn } from '@renderer/lib/utils'
-import { CheckCircleIcon, ChevronDownIcon, ClockIcon, WrenchIcon, XCircleIcon } from 'lucide-react'
+import { CheckIcon, Loader2Icon, XIcon } from 'lucide-react'
 import { isValidElement } from 'react'
 
 import { CodeBlock } from './code-block'
 
-// Local type definitions (replaces ai SDK types)
 export type ToolState = 'running' | 'completed' | 'error'
 
 export type ToolProps = ComponentProps<typeof Collapsible>
 
 export const Tool = ({ className, ...props }: ToolProps) => (
   <Collapsible
-    className={cn('group not-prose mb-4 w-full rounded-md border', className)}
+    className={cn(
+      'group not-prose w-full transition-colors hover:bg-muted/50 data-[state=open]:bg-muted/50',
+      className
+    )}
     {...props}
   />
 )
@@ -31,39 +32,38 @@ export type ToolHeaderProps = {
   className?: string
   toolName: string
   state: ToolState
+  /** Primary argument to render inline after the tool name (e.g. file path, command). */
+  summary?: ReactNode
 }
 
-const statusLabels: Record<ToolState, string> = {
-  running: 'Running',
-  completed: 'Completed',
-  error: 'Error'
+const statusIcon: Record<ToolState, ReactNode> = {
+  running: <Loader2Icon className="size-3.5 animate-spin opacity-60" />,
+  completed: <CheckIcon className="size-3.5 opacity-60" />,
+  error: <XIcon className="size-3.5 text-destructive/80" />
 }
 
-const statusIcons: Record<ToolState, ReactNode> = {
-  running: <ClockIcon className="size-4 animate-pulse" />,
-  completed: <CheckCircleIcon className="size-4 text-green-600" />,
-  error: <XCircleIcon className="size-4 text-red-600" />
-}
-
-export const getStatusBadge = (status: ToolState) => (
-  <Badge className="gap-1.5 rounded-full text-xs" variant="secondary">
-    {statusIcons[status]}
-    {statusLabels[status]}
-  </Badge>
-)
-
-export const ToolHeader = ({ className, title, state, toolName, ...props }: ToolHeaderProps) => {
+export const ToolHeader = ({
+  className,
+  title,
+  state,
+  toolName,
+  summary,
+  ...props
+}: ToolHeaderProps) => {
   return (
     <CollapsibleTrigger
-      className={cn('flex w-full items-center justify-between gap-4 p-3', className)}
+      className={cn(
+        'flex w-full items-center gap-3 px-3 py-1 text-left font-mono text-xxs',
+        'text-muted-foreground transition-colors',
+        'hover:text-foreground group-data-[state=open]:text-foreground',
+        'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+        className
+      )}
       {...props}
     >
-      <div className="flex items-center gap-2">
-        <WrenchIcon className="size-4 text-muted-foreground" />
-        <span className="font-medium text-sm">{title ?? toolName}</span>
-        {getStatusBadge(state)}
-      </div>
-      <ChevronDownIcon className="size-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+      <span className="shrink-0 font-sans font-semibold text-xs">{title ?? toolName}</span>
+      {summary != null && <span className="min-w-0 flex-1 truncate text-xs">{summary}</span>}
+      <span className="ml-auto shrink-0">{statusIcon[state]}</span>
     </CollapsibleTrigger>
   )
 }
@@ -73,7 +73,8 @@ export type ToolContentProps = ComponentProps<typeof CollapsibleContent>
 export const ToolContent = ({ className, ...props }: ToolContentProps) => (
   <CollapsibleContent
     className={cn(
-      'data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 space-y-4 p-4 text-popover-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in',
+      'space-y-3 border-t bg-background/40 px-3 py-3 text-popover-foreground outline-none',
+      'data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 data-[state=closed]:animate-out data-[state=open]:animate-in',
       className
     )}
     {...props}
@@ -88,11 +89,11 @@ export const ToolInput = ({ className, input, ...props }: ToolInputProps) => {
   const code = typeof input === 'string' ? input : JSON.stringify(input, null, 2)
 
   return (
-    <div className={cn('space-y-2 overflow-hidden', className)} {...props}>
-      <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
+    <div className={cn('space-y-1.5 overflow-hidden', className)} {...props}>
+      <h4 className="font-medium text-muted-foreground text-xxs uppercase tracking-wider">
         Parameters
       </h4>
-      <div className="rounded-md bg-muted/50">
+      <div className="overflow-hidden rounded bg-muted/50 text-xs">
         <CodeBlock code={code} language="json" />
       </div>
     </div>
@@ -118,17 +119,17 @@ export const ToolOutput = ({ className, output, errorText, ...props }: ToolOutpu
   }
 
   return (
-    <div className={cn('space-y-2', className)} {...props}>
-      <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
+    <div className={cn('space-y-1.5', className)} {...props}>
+      <h4 className="font-medium text-muted-foreground text-xxs uppercase tracking-wider">
         {errorText ? 'Error' : 'Result'}
       </h4>
       <div
         className={cn(
-          'overflow-x-auto rounded-md text-xs [&_table]:w-full',
+          'overflow-x-auto rounded text-xxs [&_table]:w-full',
           errorText ? 'bg-destructive/10 text-destructive' : 'bg-muted/50 text-foreground'
         )}
       >
-        {errorText && <div>{errorText}</div>}
+        {errorText && <div className="px-3 py-2">{errorText}</div>}
         {Output}
       </div>
     </div>

@@ -1,23 +1,27 @@
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import {
   Conversation,
-  ConversationContent,
   ConversationScrollButton
 } from '@renderer/components/ai-elements/conversation'
-import { useThreadStore } from '@renderer/stores/thread.store'
-import { useProjectStore } from '@renderer/stores/project.store'
+import {
+  useThreadStore,
+  selectMessagesForThread,
+  selectPendingForThread
+} from '@renderer/stores/thread.store'
 import { useChat } from '@renderer/hooks/useChat'
 import { useThread } from '@renderer/hooks/useThread'
 import { NewThreadView } from './NewThreadView'
 import { ChatInput } from './ChatInput'
 import { EmptyState } from './EmptyState'
 import { MessageList } from './MessageList'
+import { ThreadActivityPanel } from './ThreadActivityPanel'
 
 export function ChatArea(): React.JSX.Element {
   const activeThreadId = useThreadStore((s) => s.activeThreadId)
-  const messages = useThreadStore((s) => s.messages)
-  const pendingMessage = useThreadStore((s) => s.pendingMessage)
-  const project = useProjectStore((s) => s.project)
+  const messagesSelector = useMemo(() => selectMessagesForThread(activeThreadId), [activeThreadId])
+  const pendingSelector = useMemo(() => selectPendingForThread(activeThreadId), [activeThreadId])
+  const messages = useThreadStore(messagesSelector)
+  const pendingMessage = useThreadStore(pendingSelector)
   const { sendMessage, cancelStream } = useChat()
   const { createThread } = useThread()
 
@@ -47,23 +51,13 @@ export function ChatArea(): React.JSX.Element {
     )
   }
 
-  if (!hasMessages) {
-    return (
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <EmptyState onSuggestion={handleSend} />
-        <div className="mx-auto w-full max-w-3xl">
-          <ChatInput onSend={handleSend} onCancel={cancelStream} />
-        </div>
-      </div>
-    )
-  }
-
+  // Conversation stays mounted for the whole lifetime of an active thread so the
+  // scroll container's ref is stable. MessageList / EmptyState toggle inside it.
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
+      <ThreadActivityPanel />
       <Conversation>
-        <ConversationContent className="mx-auto max-w-3xl gap-0 p-4">
-          <MessageList />
-        </ConversationContent>
+        {hasMessages ? <MessageList key={activeThreadId} /> : <EmptyState onSuggestion={handleSend} />}
         <ConversationScrollButton />
       </Conversation>
       <div className="mx-auto w-full max-w-3xl">

@@ -1,5 +1,12 @@
 import type { SendMessageParams, StreamChunk, AIModel, AIProvider } from './ai'
-import type { Thread, Message, CreateThreadParams } from './thread'
+import type {
+  Thread,
+  Message,
+  CreateThreadParams,
+  ThreadEvent,
+  ThreadReorderEntry,
+  ThreadEventNotification
+} from './thread'
 import type {
   FileReadResult,
   FileWriteParams,
@@ -25,9 +32,18 @@ export interface InvokeChannels {
   // Thread
   'thread:create': (params: CreateThreadParams) => Thread
   'thread:list': (projectId: string) => Thread[]
+  'thread:listAll': () => Thread[]
   'thread:get': (threadId: string) => Thread | null
   'thread:delete': (threadId: string) => void
+  'thread:deleteMany': (threadIds: string[]) => void
   'thread:updateTitle': (params: { threadId: string; title: string }) => void
+  'thread:archive': (threadId: string) => void
+  'thread:unarchive': (threadId: string) => void
+  'thread:archiveMany': (threadIds: string[]) => void
+  'thread:reorder': (entries: ThreadReorderEntry[]) => void
+
+  // Thread events
+  'thread-event:list': (threadId: string) => ThreadEvent[]
 
   // Messages
   'message:list': (threadId: string) => Message[]
@@ -68,10 +84,15 @@ export interface InvokeChannels {
     config: Partial<ProviderConfig>
   }) => void
 
-  // Claude Pro (via Claude Code credentials)
-  'auth:claudePro:connect': () => { success: boolean; subscriptionType?: string; error?: string }
-  'auth:claudePro:verify': () => boolean
-  'auth:claudePro:logout': () => void
+  // Claude Code CLI status
+  'auth:claudeCli:status': () => {
+    installed: boolean
+    executablePath: string | null
+    version: string | null
+    auth: 'ready' | 'unauthenticated' | 'unknown'
+    subscriptionType: string | null
+    message: string
+  }
 
   // Automations
   'automation:list': (projectId: string) => Automation[]
@@ -88,6 +109,8 @@ export interface InvokeChannels {
 export interface PushChannels {
   'ai:stream': StreamChunk
   'automation:event': AutomationEvent
+  'thread:update': Thread
+  'thread-event:new': ThreadEventNotification
 }
 
 // Channel name types

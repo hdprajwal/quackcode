@@ -4,6 +4,7 @@ export interface StreamCallbacks {
   onText: (text: string) => void
   onToolCall: (id: string, name: string, args: Record<string, unknown>) => void
   onToolCallDelta: (id: string, argsDelta: string) => void
+  onToolResult?: (result: { toolCallId: string; content: string; isError?: boolean }) => void
   onError: (error: string) => void
   onDone: () => void
 }
@@ -18,6 +19,15 @@ export interface ChatMessage {
     arguments: Record<string, unknown>
     /** Gemini-specific: thought signature required when replaying function calls in multi-turn */
     thoughtSignature?: string
+  }>
+  /**
+   * Populated only when the provider ran tools internally (e.g. Claude Agent SDK).
+   * Signals to the agent loop that tools are already executed — persist and stop.
+   */
+  toolResults?: Array<{
+    toolCallId: string
+    content: string
+    isError?: boolean
   }>
 }
 

@@ -2,6 +2,7 @@ import { BrowserWindow } from 'electron'
 import type { SendMessageParams, StreamChunk } from '@shared/types'
 import { aiService } from './ai/ai.service'
 import { threadService } from './thread.service'
+import { threadEventService } from './thread-event.service'
 import { toolDefinitions, toolExecutors, type ToolContext } from '../tools'
 import type { ChatMessage, StreamCallbacks } from './ai/provider.interface'
 import { v4 as uuidv4 } from 'uuid'
@@ -71,6 +72,16 @@ export class AgentService {
     activeRequests.set(threadId, abortController)
 
     const context: ToolContext = { projectPath: effectivePath }
+    const turnId = uuidv4()
+
+    threadEventService.append({
+      threadId,
+      turnId,
+      kind: 'turn.started',
+      tone: 'info',
+      summary: content.length > 80 ? `${content.slice(0, 80)}…` : content,
+      payload: { model, provider }
+    })
 
     try {
       const aiProvider = aiService.getProvider(provider)
@@ -80,7 +91,14 @@ export class AgentService {
         iterations++
         const messageId = uuidv4()
 
-        const callbacks = this.createStreamCallbacks(threadId, messageId)
+        const streamedToolCallIds = new Set<string>()
+        const streamedToolResultIds = new Set<string>()
+        const callbacks = this.createStreamCallbacks(
+          threadId,
+          messageId,
+          streamedToolCallIds,
+          streamedToolResultIds
+        )
 
         const result = await aiProvider.sendMessage(
           chatMessages,
@@ -93,6 +111,80 @@ export class AgentService {
         )
 
         if (!result) break // Cancelled or error
+
+        // Provider-executed path: the SDK (e.g. Claude Agent SDK) ran tools internally
+        // and handed us back both toolCalls and toolResults. Persist both messages and stop.
+        if (
+          result.toolCalls &&
+          result.toolCalls.length > 0 &&
+          result.toolResults &&
+          result.toolResults.length > 0
+        ) {
+          threadService.createMessage({
+            threadId,
+            role: 'assistant',
+            content: result.content || '',
+            toolCalls: result.toolCalls
+          })
+          threadService.createMessage({
+            threadId,
+            role: 'tool',
+            content: '',
+            toolResults: result.toolResults
+          })
+
+          // The SDK ran tools internally, so the streaming callbacks may not have
+          // emitted tool_call/tool_result chunks. Replay them now so the renderer's
+          // pendingMessage has the calls (with final arguments) and results paired
+          // up — otherwise spinners never stop and arguments render as `{}`.
+          for (const tc of result.toolCalls) {
+            if (streamedToolCallIds.has(tc.id)) continue
+            this.sendChunk(threadId, {
+              threadId,
+              messageId,
+              type: 'tool_call_start',
+              toolCall: { id: tc.id, name: tc.name, arguments: tc.arguments }
+            })
+          }
+          for (const tr of result.toolResults) {
+            if (streamedToolResultIds.has(tr.toolCallId)) continue
+            this.sendChunk(threadId, {
+              threadId,
+              messageId: uuidv4(),
+              type: 'tool_result',
+              toolResult: { toolCallId: tr.toolCallId, content: tr.content, isError: tr.isError }
+            })
+          }
+
+          // Mirror the tool activity onto the event log so the timeline can replay it.
+          const resultsById = new Map(result.toolResults.map((r) => [r.toolCallId, r]))
+          for (const tc of result.toolCalls) {
+            threadEventService.append({
+              threadId,
+              turnId,
+              kind: 'tool.started',
+              tone: 'tool',
+              summary: tc.name,
+              payload: { toolCallId: tc.id, arguments: tc.arguments }
+            })
+            const tr = resultsById.get(tc.id)
+            if (tr) {
+              threadEventService.append({
+                threadId,
+                turnId,
+                kind: tr.isError ? 'tool.failed' : 'tool.completed',
+                tone: tr.isError ? 'error' : 'tool',
+                summary: tr.isError ? `${tc.name} failed` : `${tc.name} completed`,
+                payload: {
+                  toolCallId: tc.id,
+                  detail: tr.content.length > 500 ? `${tr.content.slice(0, 500)}…` : tr.content
+                }
+              })
+            }
+          }
+
+          break
+        }
 
         if (result.toolCalls && result.toolCalls.length > 0) {
           // Save assistant message with tool calls
@@ -109,6 +201,15 @@ export class AgentService {
           const toolResults: Array<{ toolCallId: string; content: string; isError?: boolean }> = []
 
           for (const tc of result.toolCalls) {
+            threadEventService.append({
+              threadId,
+              turnId,
+              kind: 'tool.started',
+              tone: 'tool',
+              summary: `${tc.name}`,
+              payload: { toolCallId: tc.id, arguments: tc.arguments }
+            })
+
             const executor = toolExecutors[tc.name]
             let resultContent: string
             let isError = false
@@ -124,6 +225,19 @@ export class AgentService {
             }
 
             toolResults.push({ toolCallId: tc.id, content: resultContent, isError })
+
+            threadEventService.append({
+              threadId,
+              turnId,
+              kind: isError ? 'tool.failed' : 'tool.completed',
+              tone: isError ? 'error' : 'tool',
+              summary: isError ? `${tc.name} failed` : `${tc.name} completed`,
+              payload: {
+                toolCallId: tc.id,
+                detail:
+                  resultContent.length > 500 ? `${resultContent.slice(0, 500)}…` : resultContent
+              }
+            })
 
             // Send tool result to renderer
             this.sendChunk(threadId, {
@@ -161,8 +275,23 @@ export class AgentService {
 
         break
       }
+
+      threadEventService.append({
+        threadId,
+        turnId,
+        kind: 'turn.completed',
+        tone: 'info',
+        summary: 'Turn completed'
+      })
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error'
+      threadEventService.append({
+        threadId,
+        turnId,
+        kind: 'turn.error',
+        tone: 'error',
+        summary: msg.length > 120 ? `${msg.slice(0, 120)}…` : msg
+      })
       this.sendChunk(threadId, {
         threadId,
         messageId: uuidv4(),
@@ -226,7 +355,12 @@ Mode: ${environmentMode}
 </principles>`
   }
 
-  private createStreamCallbacks(threadId: string, messageId: string): StreamCallbacks {
+  private createStreamCallbacks(
+    threadId: string,
+    messageId: string,
+    streamedToolCallIds: Set<string>,
+    streamedToolResultIds: Set<string>
+  ): StreamCallbacks {
     return {
       onText: (text) => {
         this.sendChunk(threadId, {
@@ -237,6 +371,7 @@ Mode: ${environmentMode}
         })
       },
       onToolCall: (id, name, args) => {
+        streamedToolCallIds.add(id)
         this.sendChunk(threadId, {
           threadId,
           messageId,
@@ -251,6 +386,15 @@ Mode: ${environmentMode}
           type: 'tool_call_delta',
           toolCall: { id },
           content: argsDelta
+        })
+      },
+      onToolResult: (result) => {
+        streamedToolResultIds.add(result.toolCallId)
+        this.sendChunk(threadId, {
+          threadId,
+          messageId: uuidv4(),
+          type: 'tool_result',
+          toolResult: result
         })
       },
       onError: (error) => {

@@ -1,12 +1,9 @@
 import type { AIProvider } from './ai'
 
-export type AnthropicAuthMode = 'apiKey' | 'claudePro'
-
 export interface ProviderConfig {
   apiKey: string
   baseUrl?: string
   enabled: boolean
-  authMode?: AnthropicAuthMode
 }
 
 export type EditorId = 'zed' | 'vscode' | 'cursor' | 'nvim'
@@ -34,7 +31,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     cursor: { apiKey: '', enabled: false }
   },
   defaultProvider: 'anthropic',
-  defaultModel: 'claude-sonnet-4-20250514',
+  defaultModel: 'claude-sonnet-4-6',
   theme: 'dark',
   defaultEditor: 'zed'
 }

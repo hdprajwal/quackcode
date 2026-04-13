@@ -15,7 +15,7 @@ import type { Project } from '@shared/types'
 
 export function ProjectSelector(): React.JSX.Element {
   const { project, recentProjects, setProject, setRecentProjects } = useProjectStore()
-  const { setThreads, setActiveThread, setMessages } = useThreadStore()
+  const { setThreads, setActiveThread } = useThreadStore()
 
   const handleSelectFolder = async (): Promise<void> => {
     const selected = await invoke<Project | null>('project:select')
@@ -25,7 +25,6 @@ export function ProjectSelector(): React.JSX.Element {
       const threads = await invoke<import('@shared/types').Thread[]>('thread:list', selected.id)
       setThreads(threads)
       setActiveThread(null)
-      setMessages([])
       // Refresh recent projects
       const projects = await invoke<Project[]>('project:list')
       setRecentProjects(projects)
@@ -37,7 +36,6 @@ export function ProjectSelector(): React.JSX.Element {
     const threads = await invoke<import('@shared/types').Thread[]>('thread:list', p.id)
     setThreads(threads)
     setActiveThread(null)
-    setMessages([])
   }
 
   return (
