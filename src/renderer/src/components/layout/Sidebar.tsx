@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { useUIStore, type ActiveView } from '@renderer/stores/ui.store'
+import { useUIStore } from '@renderer/stores/ui.store'
 import { useProjectStore } from '@renderer/stores/project.store'
 import { useThreadStore } from '@renderer/stores/thread.store'
+import { useThreadSelectionStore } from '@renderer/stores/thread-selection.store'
 import { useThread } from '@renderer/hooks/useThread'
-import { invoke, on } from '@renderer/lib/ipc'
+import { invoke } from '@renderer/lib/ipc'
 import type { Project, Thread } from '@shared/types'
 import {
   ChevronDown,
@@ -34,7 +35,9 @@ import {
   DialogTitle
 } from '@renderer/components/ui/dialog'
 import { ScrollArea } from '@renderer/components/ui/scroll-area'
-import { ThreadItem } from '@renderer/components/sidebar/ThreadItem'
+import { ThreadGroup } from '@renderer/components/sidebar/ThreadGroup'
+import { ArchivedThreadsSection } from '@renderer/components/sidebar/ArchivedThreadsSection'
+import { ThreadSelectionBar } from '@renderer/components/sidebar/ThreadSelectionBar'
 import {
   Sidebar as SidebarShell,
   SidebarContent,
@@ -61,32 +64,68 @@ export function Sidebar(): React.JSX.Element {
     removeProject
   } = useProjectStore()
   const threads = useThreadStore((s) => s.threads)
-  const { createThread, loadAllThreads } = useThread()
-  const { setActiveThread, setMessages, updateThread, removeProjectThreads } = useThreadStore()
+  const { createThread, switchThread, loadAllThreads } = useThread()
+  const { setActiveThread, setMessages, removeProjectThreads } = useThreadStore()
+  const clearSelection = useThreadSelectionStore((s) => s.clear)
+
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({})
   const [createThreadDialogOpen, setCreateThreadDialogOpen] = useState(false)
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null)
 
   useEffect(() => {
-    const cleanup = on('thread:update', (updatedThread: unknown) => {
-      updateThread(updatedThread as Thread)
-    })
-    return cleanup
-  }, [updateThread])
-
-  useEffect(() => {
-    loadAllThreads()
+    void loadAllThreads()
   }, [loadAllThreads])
 
-  const groupedThreads = useMemo(() => {
+  const { activeThreadsByProject, flatActiveThreads } = useMemo(() => {
     const groups = new Map<string, Thread[]>()
+    const flat: Thread[] = []
     for (const thread of threads) {
+      if (thread.archivedAt !== null) continue
       const existing = groups.get(thread.projectId) ?? []
       existing.push(thread)
       groups.set(thread.projectId, existing)
+      flat.push(thread)
     }
-    return groups
+    for (const list of groups.values()) {
+      list.sort((a, b) => a.sortOrder - b.sortOrder)
+    }
+    flat.sort((a, b) => {
+      if (a.projectId !== b.projectId) return a.projectId.localeCompare(b.projectId)
+      return a.sortOrder - b.sortOrder
+    })
+    return { activeThreadsByProject: groups, flatActiveThreads: flat }
   }, [threads])
+
+  // Cmd/Ctrl + 1..9 quick-jump across visible active threads.
+  useEffect(() => {
+    function handleKey(event: KeyboardEvent): void {
+      if (!(event.metaKey || event.ctrlKey)) return
+      if (event.shiftKey || event.altKey) return
+      const digit = Number(event.key)
+      if (!Number.isInteger(digit) || digit < 1 || digit > 9) return
+      const target = flatActiveThreads[digit - 1]
+      if (!target) return
+      event.preventDefault()
+      void switchThread(target.id)
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [flatActiveThreads, switchThread])
+
+  // Escape to clear multi-selection.
+  useEffect(() => {
+    function handleEscape(event: KeyboardEvent): void {
+      if (event.key === 'Escape') {
+        const size = useThreadSelectionStore.getState().selectedIds.size
+        if (size > 0) {
+          event.preventDefault()
+          clearSelection()
+        }
+      }
+    }
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [clearSelection])
 
   const projectExpansionState = useMemo(() => {
     return Object.fromEntries(
@@ -212,12 +251,12 @@ export function Sidebar(): React.JSX.Element {
 
             <SidebarSeparator />
 
-            <ScrollArea className="flex-1 px-2 ">
+            <ScrollArea className="flex-1 px-2">
               <SidebarGroup>
                 <SidebarGroupContent className="pt-2">
                   <SidebarMenu className="gap-2">
                     {projects.map((project) => {
-                      const projectThreads = groupedThreads.get(project.id) ?? []
+                      const projectThreads = activeThreadsByProject.get(project.id) ?? []
                       const isExpanded = projectExpansionState[project.id]
 
                       return (
@@ -246,6 +285,11 @@ export function Sidebar(): React.JSX.Element {
                               <span className="truncate font-semibold tracking-[-0.02em] text-white/92">
                                 {project.name}
                               </span>
+                              {projectThreads.length > 0 ? (
+                                <span className="ml-auto shrink-0 text-xs text-white/35">
+                                  {projectThreads.length}
+                                </span>
+                              ) : null}
                             </SidebarMenuButton>
 
                             <DropdownMenu>
@@ -286,22 +330,20 @@ export function Sidebar(): React.JSX.Element {
 
                           {isExpanded && (
                             <SidebarMenuSub className="mt-1">
-                              {projectThreads.length > 0 ? (
-                                projectThreads.map((thread) => (
-                                  <ThreadItem key={thread.id} thread={thread} />
-                                ))
-                              ) : (
-                                <li className="px-2 py-2 text-sm text-white/30">No threads yet</li>
-                              )}
+                              <ThreadGroup threads={projectThreads} />
                             </SidebarMenuSub>
                           )}
                         </SidebarMenuItem>
                       )
                     })}
                   </SidebarMenu>
+
+                  <ArchivedThreadsSection />
                 </SidebarGroupContent>
               </SidebarGroup>
             </ScrollArea>
+
+            <ThreadSelectionBar />
           </SidebarContent>
           <SidebarFooter className="p-3">
             <Button
@@ -330,7 +372,7 @@ export function Sidebar(): React.JSX.Element {
           {projects.length > 0 ? (
             <div className="space-y-2">
               {projects.map((project) => {
-                const projectThreads = groupedThreads.get(project.id) ?? []
+                const projectThreads = activeThreadsByProject.get(project.id) ?? []
 
                 return (
                   <button

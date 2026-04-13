@@ -42,7 +42,13 @@ function runMigrations(db: Database.Database): void {
       title TEXT NOT NULL DEFAULT 'New Thread',
       project_id TEXT NOT NULL,
       provider TEXT NOT NULL DEFAULT 'anthropic',
-      model TEXT NOT NULL DEFAULT 'claude-sonnet-4-20250514',
+      model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6',
+      status TEXT NOT NULL DEFAULT 'idle' CHECK (status IN ('idle', 'running', 'completed', 'error')),
+      archived_at TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      last_activity_at TEXT NOT NULL DEFAULT (datetime('now')),
+      latest_turn_id TEXT,
+      has_pending_approval INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
@@ -59,10 +65,27 @@ function runMigrations(db: Database.Database): void {
       FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS thread_events (
+      id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL,
+      turn_id TEXT,
+      sequence INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      tone TEXT NOT NULL CHECK (tone IN ('info', 'tool', 'approval', 'error')),
+      summary TEXT NOT NULL,
+      payload TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_threads_project_id ON threads(project_id);
     CREATE INDEX IF NOT EXISTS idx_threads_updated_at ON threads(updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_threads_archived_at ON threads(archived_at);
+    CREATE INDEX IF NOT EXISTS idx_threads_sort_order ON threads(project_id, sort_order);
     CREATE INDEX IF NOT EXISTS idx_messages_thread_id ON messages(thread_id);
     CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
+    CREATE INDEX IF NOT EXISTS idx_thread_events_thread_id ON thread_events(thread_id, sequence);
+    CREATE INDEX IF NOT EXISTS idx_thread_events_turn_id ON thread_events(turn_id);
 
     CREATE TABLE IF NOT EXISTS automations (
       id TEXT PRIMARY KEY,
@@ -70,7 +93,7 @@ function runMigrations(db: Database.Database): void {
       project_ids TEXT NOT NULL DEFAULT '',
       prompt TEXT NOT NULL,
       provider TEXT NOT NULL DEFAULT 'anthropic',
-      model TEXT NOT NULL DEFAULT 'claude-sonnet-4-20250514',
+      model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6',
       schedule_type TEXT NOT NULL DEFAULT 'interval' CHECK (schedule_type IN ('daily', 'interval')),
       interval_value INTEGER NOT NULL DEFAULT 60,
       interval_unit TEXT NOT NULL DEFAULT 'minutes' CHECK (interval_unit IN ('minutes', 'hours', 'days')),
@@ -96,6 +119,7 @@ function runMigrations(db: Database.Database): void {
     );
   `)
 
+  migrateThreadsTable(db)
   migrateAutomationsTable(db)
   ensureAutomationIndexes(db)
 }
@@ -107,6 +131,54 @@ function getTableColumns(db: Database.Database, tableName: string): Set<string> 
         name: string
       }>
     ).map((column) => column.name)
+  )
+}
+
+function migrateThreadsTable(db: Database.Database): void {
+  const columns = getTableColumns(db, 'threads')
+
+  const additions: Array<[string, string]> = [
+    ['status', "TEXT NOT NULL DEFAULT 'idle' CHECK (status IN ('idle', 'running', 'completed', 'error'))"],
+    ['archived_at', 'TEXT'],
+    ['sort_order', 'INTEGER NOT NULL DEFAULT 0'],
+    ['last_activity_at', "TEXT NOT NULL DEFAULT (datetime('now'))"],
+    ['latest_turn_id', 'TEXT'],
+    ['has_pending_approval', 'INTEGER NOT NULL DEFAULT 0']
+  ]
+
+  for (const [name, ddl] of additions) {
+    if (!columns.has(name)) {
+      db.exec(`ALTER TABLE threads ADD COLUMN ${name} ${ddl}`)
+    }
+  }
+
+  // Seed sort_order from updated_at ordering so existing threads retain a stable order.
+  const needsSeed = db
+    .prepare("SELECT COUNT(*) as n FROM threads WHERE sort_order = 0")
+    .get() as { n: number }
+  if (needsSeed.n > 0) {
+    const seed = db.transaction(() => {
+      const rows = db
+        .prepare('SELECT id, project_id, updated_at FROM threads ORDER BY project_id, updated_at DESC')
+        .all() as Array<{ id: string; project_id: string; updated_at: string }>
+      let currentProject = ''
+      let cursor = 0
+      const update = db.prepare('UPDATE threads SET sort_order = ? WHERE id = ?')
+      for (const row of rows) {
+        if (row.project_id !== currentProject) {
+          currentProject = row.project_id
+          cursor = 0
+        }
+        cursor += 1
+        update.run(cursor, row.id)
+      }
+    })
+    seed()
+  }
+
+  // Seed last_activity_at from updated_at if empty.
+  db.exec(
+    "UPDATE threads SET last_activity_at = updated_at WHERE last_activity_at IS NULL OR last_activity_at = ''"
   )
 }
 
@@ -153,7 +225,7 @@ function rebuildAutomationsTable(db: Database.Database, columns: Set<string>): v
         project_ids TEXT NOT NULL DEFAULT '',
         prompt TEXT NOT NULL,
         provider TEXT NOT NULL DEFAULT 'anthropic',
-        model TEXT NOT NULL DEFAULT 'claude-sonnet-4-20250514',
+        model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6',
         schedule_type TEXT NOT NULL DEFAULT 'interval' CHECK (schedule_type IN ('daily', 'interval')),
         interval_value INTEGER NOT NULL DEFAULT 60,
         interval_unit TEXT NOT NULL DEFAULT 'minutes' CHECK (interval_unit IN ('minutes', 'hours', 'days')),

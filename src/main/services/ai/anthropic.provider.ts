@@ -3,7 +3,8 @@ import type {
   SDKAssistantMessage,
   SDKPartialAssistantMessage,
   SDKResultMessage,
-  SDKToolProgressMessage
+  SDKToolProgressMessage,
+  SDKUserMessage
 } from '@anthropic-ai/claude-agent-sdk'
 import type {
   BetaRawMessageStreamEvent,
@@ -12,20 +13,48 @@ import type {
 } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import type { AIModel, ToolDefinition } from '@shared/types'
 import type { AIProviderInterface, ChatMessage, StreamCallbacks } from './provider.interface'
+import { getClaudeCliStatus } from './claude-cli'
+
+interface CollectedToolCall {
+  id: string
+  name: string
+  arguments: Record<string, unknown>
+}
+
+interface CollectedToolResult {
+  toolCallId: string
+  content: string
+  isError?: boolean
+}
+
+function extractToolResultText(block: unknown): { text: string; isError: boolean } {
+  // Tool result blocks can have `content` as a string or an array of {type, text} blocks.
+  const b = block as {
+    tool_use_id?: string
+    content?: unknown
+    is_error?: boolean
+  }
+  const isError = Boolean(b.is_error)
+  const raw = b.content
+  if (typeof raw === 'string') return { text: raw, isError }
+  if (Array.isArray(raw)) {
+    const parts: string[] = []
+    for (const part of raw) {
+      const p = part as { type?: string; text?: string }
+      if (p?.type === 'text' && typeof p.text === 'string') parts.push(p.text)
+    }
+    return { text: parts.join('\n'), isError }
+  }
+  return { text: '', isError }
+}
 
 export class AnthropicProvider implements AIProviderInterface {
   readonly provider = 'anthropic'
-  private apiKey: string | null = null
-  private authToken: string | null = null
 
-  setApiKey(apiKey: string): void {
-    this.apiKey = apiKey.trim() || null
-    this.authToken = null
-  }
-
-  setAuthToken(token: string): void {
-    this.authToken = token.trim() || null
-    this.apiKey = null
+  setApiKey(_apiKey: string): void {
+    // Intentionally empty. Claude access is delegated to the locally-authenticated
+    // `claude` CLI that the Agent SDK spawns; quackcode never handles API keys or
+    // OAuth tokens for Anthropic.
   }
 
   async listModels(): Promise<AIModel[]> {
@@ -44,21 +73,21 @@ export class AnthropicProvider implements AIProviderInterface {
     callbacks: StreamCallbacks,
     signal?: AbortSignal
   ): Promise<ChatMessage | null> {
-    const env: Record<string, string | undefined> = { ...process.env }
-    if (this.apiKey) {
-      env['ANTHROPIC_API_KEY'] = this.apiKey
-    } else if (this.authToken) {
-      env['ANTHROPIC_API_KEY'] = this.authToken
-    } else {
-      callbacks.onError('Anthropic API key not configured')
-      return null
-    }
-
+    // Track tool lifecycle so we can persist it on the assistant message after streaming.
+    const toolCallsById = new Map<string, CollectedToolCall>()
+    const toolResultsById = new Map<string, CollectedToolResult>()
+    const toolInputBuffers: Record<string, string> = {}
+    const toolOrder: string[] = []
     const prompt = this.buildPromptFromHistory(messages)
     const abortController = new AbortController()
     if (signal) {
       signal.addEventListener('abort', () => abortController.abort())
     }
+
+    // Strip any stale ANTHROPIC_API_KEY / token so the CLI uses its own login.
+    const env: Record<string, string | undefined> = { ...process.env }
+    delete env.ANTHROPIC_API_KEY
+    delete env.ANTHROPIC_AUTH_TOKEN
 
     try {
       const agentQuery = query({
@@ -67,8 +96,6 @@ export class AnthropicProvider implements AIProviderInterface {
           model,
           systemPrompt,
           env,
-          // Use the Agent SDK's built-in toolset (Bash, Read, Edit, Glob, Grep, WebSearch, etc.)
-          // The agent SDK executes these internally — we never return toolCalls to the app loop
           allowedTools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
           permissionMode: 'dontAsk',
           includePartialMessages: true,
@@ -77,31 +104,29 @@ export class AnthropicProvider implements AIProviderInterface {
         }
       })
 
-      // Accumulate text across all assistant turns (the agent may do multiple turns)
       let fullText = ''
       let currentToolId = ''
-      // UUIDs of turns whose text/tool-calls already arrived via stream_events.
-      // stream_event and assistant messages for the same turn share the same uuid,
-      // so we use it to avoid double-emitting in the assistant-message fallback.
       const streamedTurnIds = new Set<string>()
 
       for await (const message of agentQuery) {
         if (signal?.aborted) break
 
         if (message.type === 'stream_event') {
-          // Streaming deltas — text and tool input JSON (only when includePartialMessages: true)
           const partialMsg = message as SDKPartialAssistantMessage
           const event = partialMsg.event as BetaRawMessageStreamEvent
 
           if (event.type === 'message_start') {
-            // New assistant turn — clear stale tool id
             currentToolId = ''
           } else if (event.type === 'content_block_start') {
             const startEvent = event as BetaRawContentBlockStartEvent
             if (startEvent.content_block.type === 'tool_use') {
               currentToolId = startEvent.content_block.id
-              // Notify UI that a tool call is starting (display-only; app doesn't execute it)
-              callbacks.onToolCall(currentToolId, startEvent.content_block.name, {})
+              const name = startEvent.content_block.name
+              if (!toolCallsById.has(currentToolId)) {
+                toolCallsById.set(currentToolId, { id: currentToolId, name, arguments: {} })
+                toolOrder.push(currentToolId)
+              }
+              callbacks.onToolCall(currentToolId, name, {})
               streamedTurnIds.add(partialMsg.uuid)
             }
           } else if (event.type === 'content_block_delta') {
@@ -112,44 +137,81 @@ export class AnthropicProvider implements AIProviderInterface {
               streamedTurnIds.add(partialMsg.uuid)
               callbacks.onText(delta.text)
             } else if (delta.type === 'input_json_delta' && currentToolId) {
-              // Stream the tool input JSON to the UI for display
+              toolInputBuffers[currentToolId] =
+                (toolInputBuffers[currentToolId] || '') + delta.partial_json
               callbacks.onToolCallDelta(currentToolId, delta.partial_json)
             }
           } else if (event.type === 'content_block_stop') {
+            if (currentToolId && toolInputBuffers[currentToolId]) {
+              try {
+                const parsed = JSON.parse(toolInputBuffers[currentToolId]) as Record<string, unknown>
+                const existing = toolCallsById.get(currentToolId)
+                if (existing) existing.arguments = parsed
+              } catch {
+                // leave arguments as-is if JSON isn't complete
+              }
+            }
             currentToolId = ''
           }
         } else if (message.type === 'tool_progress') {
-          // Tool execution in progress — notify UI with elapsed time context
           const prog = message as SDKToolProgressMessage
           callbacks.onToolCall(prog.tool_use_id, prog.tool_name, {
             elapsed_seconds: prog.elapsed_time_seconds
           })
+        } else if (message.type === 'user') {
+          // The Agent SDK inserts a user message carrying tool_result blocks after it executes a tool.
+          const userMsg = message as SDKUserMessage
+          const content = userMsg.message?.content
+          if (Array.isArray(content)) {
+            for (const block of content) {
+              const b = block as { type?: string; tool_use_id?: string }
+              if (b?.type === 'tool_result' && b.tool_use_id) {
+                const { text, isError } = extractToolResultText(block)
+                toolResultsById.set(b.tool_use_id, {
+                  toolCallId: b.tool_use_id,
+                  content: text,
+                  isError: isError || undefined
+                })
+                callbacks.onToolResult?.({
+                  toolCallId: b.tool_use_id,
+                  content: text,
+                  isError: isError || undefined
+                })
+              }
+            }
+          }
         } else if (message.type === 'assistant') {
-          // Complete assistant turn — emit anything not already sent via stream_events
           const assistantMsg = message as SDKAssistantMessage
           if (assistantMsg.error) {
-            callbacks.onError(`Anthropic error: ${assistantMsg.error}`)
+            callbacks.onError(this.describeError(assistantMsg.error))
             return null
           }
-          // Only use the assistant message as a fallback when no stream_events arrived for this turn
+          for (const block of assistantMsg.message.content) {
+            if (block.type === 'tool_use') {
+              const existing = toolCallsById.get(block.id)
+              const input = block.input as Record<string, unknown>
+              if (existing) existing.arguments = input
+              else {
+                toolCallsById.set(block.id, { id: block.id, name: block.name, arguments: input })
+                toolOrder.push(block.id)
+                callbacks.onToolCall(block.id, block.name, input)
+              }
+            }
+          }
           if (!streamedTurnIds.has(assistantMsg.uuid)) {
             for (const block of assistantMsg.message.content) {
               if (block.type === 'text' && block.text) {
                 fullText += block.text
                 callbacks.onText(block.text)
-              } else if (block.type === 'tool_use') {
-                callbacks.onToolCall(block.id, block.name, block.input as Record<string, unknown>)
               }
             }
           }
         } else if (message.type === 'result') {
-          // Agent loop complete — use result.result as the canonical final text if available
           const result = message as SDKResultMessage
           if (result.subtype !== 'success') {
             callbacks.onError(`Agent query failed: ${result.subtype}`)
             return null
           }
-          // result.result is the final text summary from the agent
           if (result.result && !fullText) {
             fullText = result.result
             callbacks.onText(result.result)
@@ -160,73 +222,54 @@ export class AnthropicProvider implements AIProviderInterface {
 
       callbacks.onDone()
 
-      // IMPORTANT: Never return toolCalls — the Agent SDK executed all tools internally.
-      // Returning toolCalls would cause the AgentService loop to try executing them
-      // with the app's own executors, which don't know about Claude Code's built-in tools.
-      return { role: 'assistant', content: fullText }
+      const collectedToolCalls = toolOrder
+        .map((id) => toolCallsById.get(id))
+        .filter((c): c is CollectedToolCall => Boolean(c))
+      const collectedToolResults = toolOrder
+        .map((id) => toolResultsById.get(id))
+        .filter((r): r is CollectedToolResult => Boolean(r))
+
+      return {
+        role: 'assistant',
+        content: fullText,
+        toolCalls: collectedToolCalls.length > 0 ? collectedToolCalls : undefined,
+        toolResults: collectedToolResults.length > 0 ? collectedToolResults : undefined
+      }
     } catch (error: unknown) {
       if (error instanceof Error && (error.name === 'AbortError' || signal?.aborted)) {
         return null
       }
-      const msg = error instanceof Error ? error.message : 'Unknown error'
-      callbacks.onError(msg)
+      callbacks.onError(this.describeError(error))
       return null
     }
   }
 
-  async verifyApiKey(apiKey: string): Promise<boolean> {
-    try {
-      const env: Record<string, string | undefined> = { ...process.env, ANTHROPIC_API_KEY: apiKey }
-      const agentQuery = query({
-        prompt: 'hi',
-        options: {
-          model: 'claude-haiku-4-5',
-          env,
-          allowedTools: [],
-          maxTurns: 1
-        }
-      })
-
-      for await (const message of agentQuery) {
-        if (message.type === 'result') {
-          const result = message as SDKResultMessage
-          return result.subtype === 'success'
-        }
-        if (message.type === 'assistant') {
-          const assistantMsg = message as SDKAssistantMessage
-          return !assistantMsg.error
-        }
-      }
-      return false
-    } catch {
-      return false
-    }
+  async verifyApiKey(_apiKey: string): Promise<boolean> {
+    const status = await getClaudeCliStatus()
+    return status.installed && status.auth === 'ready'
   }
 
-  /**
-   * Reconstructs the full conversation as a formatted prompt string for the agent.
-   * Since the Agent SDK starts a fresh session each call, conversation history
-   * is embedded directly in the prompt.
-   */
+  private describeError(error: unknown): string {
+    const raw = error instanceof Error ? error.message : String(error)
+    if (/not logged in|login required|unauthorized|401/i.test(raw)) {
+      return 'Claude CLI is not logged in. Run `claude login` in a terminal.'
+    }
+    if (/ENOENT|command not found|spawn .* ENOENT/i.test(raw)) {
+      return 'The Claude Code CLI is not installed or not on PATH. Install it from https://docs.claude.com/claude-code.'
+    }
+    return raw || 'Unknown error'
+  }
+
   private buildPromptFromHistory(messages: ChatMessage[]): string {
     if (messages.length === 0) return ''
-
-    // Single user message — return directly
     if (messages.length === 1 && messages[0].role === 'user') {
       return messages[0].content
     }
-
-    // Multi-turn: encode prior history, ending with the latest user message
     const lines: string[] = []
     for (const msg of messages) {
-      if (msg.role === 'user') {
-        lines.push(`Human: ${msg.content}`)
-      } else if (msg.role === 'assistant') {
-        lines.push(`Assistant: ${msg.content}`)
-      }
-      // tool results are internal to the agent SDK — omit them from the prompt
+      if (msg.role === 'user') lines.push(`Human: ${msg.content}`)
+      else if (msg.role === 'assistant') lines.push(`Assistant: ${msg.content}`)
     }
-
     return lines.join('\n\n')
   }
 }
