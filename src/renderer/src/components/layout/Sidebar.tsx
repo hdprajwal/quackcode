@@ -13,7 +13,6 @@ import {
   ClipboardCopy,
   Clock,
   FolderPlus,
-  Grid2X2Plus,
   Settings,
   SquarePen,
   Trash2
@@ -247,12 +246,6 @@ export function Sidebar(): React.JSX.Element {
                     >
                       <Clock className="h-4 w-4" />
                       <span>Automations</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton disabled>
-                      <Grid2X2Plus className="h-4 w-4" />
-                      <span>Skills</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 </SidebarMenu>
