@@ -106,17 +106,22 @@ export class AnthropicProvider implements AIProviderInterface {
 
       let fullText = ''
       let currentToolId = ''
-      const streamedTurnIds = new Set<string>()
+      // Per-turn flag: set when we stream any text/tool content for the current
+      // assistant turn, then consulted (and reset) when the assembled `assistant`
+      // message arrives — so we don't re-emit text the renderer already received
+      // chunk-by-chunk. UUID-based dedup was unreliable: partial-event UUIDs
+      // don't always match the final assistant message UUID.
+      let turnHasStreamedContent = false
 
       for await (const message of agentQuery) {
         if (signal?.aborted) break
 
         if (message.type === 'stream_event') {
-          const partialMsg = message as SDKPartialAssistantMessage
-          const event = partialMsg.event as BetaRawMessageStreamEvent
+          const event = (message as SDKPartialAssistantMessage).event as BetaRawMessageStreamEvent
 
           if (event.type === 'message_start') {
             currentToolId = ''
+            turnHasStreamedContent = false
           } else if (event.type === 'content_block_start') {
             const startEvent = event as BetaRawContentBlockStartEvent
             if (startEvent.content_block.type === 'tool_use') {
@@ -127,14 +132,14 @@ export class AnthropicProvider implements AIProviderInterface {
                 toolOrder.push(currentToolId)
               }
               callbacks.onToolCall(currentToolId, name, {})
-              streamedTurnIds.add(partialMsg.uuid)
+              turnHasStreamedContent = true
             }
           } else if (event.type === 'content_block_delta') {
             const deltaEvent = event as BetaRawContentBlockDeltaEvent
             const delta = deltaEvent.delta
             if (delta.type === 'text_delta') {
               fullText += delta.text
-              streamedTurnIds.add(partialMsg.uuid)
+              turnHasStreamedContent = true
               callbacks.onText(delta.text)
             } else if (delta.type === 'input_json_delta' && currentToolId) {
               toolInputBuffers[currentToolId] =
@@ -198,7 +203,7 @@ export class AnthropicProvider implements AIProviderInterface {
               }
             }
           }
-          if (!streamedTurnIds.has(assistantMsg.uuid)) {
+          if (!turnHasStreamedContent) {
             for (const block of assistantMsg.message.content) {
               if (block.type === 'text' && block.text) {
                 fullText += block.text
@@ -206,6 +211,7 @@ export class AnthropicProvider implements AIProviderInterface {
               }
             }
           }
+          turnHasStreamedContent = false
         } else if (message.type === 'result') {
           const result = message as SDKResultMessage
           if (result.subtype !== 'success') {
