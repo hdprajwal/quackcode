@@ -20,6 +20,7 @@ interface ThreadStore {
   loadedMessageThreadIds: Record<string, true>
   pendingByThreadId: Record<string, PendingMessage>
   streamingByThreadId: Record<string, boolean>
+  streamingStartedAtByThreadId: Record<string, number>
   eventsByThreadId: Record<string, ThreadEvent[]>
   showArchived: boolean
 
@@ -81,6 +82,11 @@ export const selectIsStreamingForThread =
   (state: ThreadStore): boolean =>
     threadId ? Boolean(state.streamingByThreadId[threadId]) : false
 
+export const selectStreamingStartedAtForThread =
+  (threadId: string | null | undefined) =>
+  (state: ThreadStore): number | null =>
+    threadId ? state.streamingStartedAtByThreadId[threadId] ?? null : null
+
 export const selectIsThreadLoaded =
   (threadId: string | null | undefined) =>
   (state: ThreadStore): boolean =>
@@ -93,6 +99,7 @@ export const useThreadStore = create<ThreadStore>((set, get) => ({
   loadedMessageThreadIds: {},
   pendingByThreadId: {},
   streamingByThreadId: {},
+  streamingStartedAtByThreadId: {},
   eventsByThreadId: {},
   showArchived: false,
 
@@ -119,7 +126,8 @@ export const useThreadStore = create<ThreadStore>((set, get) => ({
       messagesByThreadId: omitKey(s.messagesByThreadId, threadId),
       loadedMessageThreadIds: omitKey(s.loadedMessageThreadIds, threadId),
       pendingByThreadId: omitKey(s.pendingByThreadId, threadId),
-      streamingByThreadId: omitKey(s.streamingByThreadId, threadId)
+      streamingByThreadId: omitKey(s.streamingByThreadId, threadId),
+      streamingStartedAtByThreadId: omitKey(s.streamingStartedAtByThreadId, threadId)
     })),
   removeThreads: (threadIds) =>
     set((s) => {
@@ -131,7 +139,8 @@ export const useThreadStore = create<ThreadStore>((set, get) => ({
         messagesByThreadId: omitKeys(s.messagesByThreadId, idSet),
         loadedMessageThreadIds: omitKeys(s.loadedMessageThreadIds, idSet),
         pendingByThreadId: omitKeys(s.pendingByThreadId, idSet),
-        streamingByThreadId: omitKeys(s.streamingByThreadId, idSet)
+        streamingByThreadId: omitKeys(s.streamingByThreadId, idSet),
+        streamingStartedAtByThreadId: omitKeys(s.streamingStartedAtByThreadId, idSet)
       }
     }),
   removeProjectThreads: (projectId) =>
@@ -149,7 +158,8 @@ export const useThreadStore = create<ThreadStore>((set, get) => ({
         messagesByThreadId: omitKeys(state.messagesByThreadId, idSet),
         loadedMessageThreadIds: omitKeys(state.loadedMessageThreadIds, idSet),
         pendingByThreadId: omitKeys(state.pendingByThreadId, idSet),
-        streamingByThreadId: omitKeys(state.streamingByThreadId, idSet)
+        streamingByThreadId: omitKeys(state.streamingByThreadId, idSet),
+        streamingStartedAtByThreadId: omitKeys(state.streamingStartedAtByThreadId, idSet)
       }
     }),
   setMessagesForThread: (threadId, messages) =>
@@ -176,7 +186,12 @@ export const useThreadStore = create<ThreadStore>((set, get) => ({
     set((s) => ({
       streamingByThreadId: streaming
         ? { ...s.streamingByThreadId, [threadId]: true }
-        : omitKey(s.streamingByThreadId, threadId)
+        : omitKey(s.streamingByThreadId, threadId),
+      streamingStartedAtByThreadId: streaming
+        ? s.streamingStartedAtByThreadId[threadId]
+          ? s.streamingStartedAtByThreadId
+          : { ...s.streamingStartedAtByThreadId, [threadId]: Date.now() }
+        : omitKey(s.streamingStartedAtByThreadId, threadId)
     })),
   setShowArchived: (show) => set({ showArchived: show }),
 
@@ -367,7 +382,10 @@ export const useThreadStore = create<ThreadStore>((set, get) => ({
       }
       case 'done': {
         commitPending(currentState)
-        set((s) => ({ streamingByThreadId: omitKey(s.streamingByThreadId, threadId) }))
+        set((s) => ({
+          streamingByThreadId: omitKey(s.streamingByThreadId, threadId),
+          streamingStartedAtByThreadId: omitKey(s.streamingStartedAtByThreadId, threadId)
+        }))
         break
       }
       case 'error': {
@@ -378,7 +396,13 @@ export const useThreadStore = create<ThreadStore>((set, get) => ({
             ...pending,
             content: pending.content + `\n\nError: ${chunk.error}`
           },
-          { streamingByThreadId: omitKey(currentState.streamingByThreadId, threadId) }
+          {
+            streamingByThreadId: omitKey(currentState.streamingByThreadId, threadId),
+            streamingStartedAtByThreadId: omitKey(
+              currentState.streamingStartedAtByThreadId,
+              threadId
+            )
+          }
         )
         break
       }
