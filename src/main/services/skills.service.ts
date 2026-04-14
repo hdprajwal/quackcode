@@ -265,6 +265,13 @@ export class SkillsService {
     path: string
     skillId: string
   }): Promise<SkillDetails> {
+    // Only read from paths the CLI reports as installed — the renderer cannot
+    // coax this handler into reading arbitrary files.
+    const installed = await this.listInstalled()
+    const match = installed.find((s) => s.path === path && s.skillId === skillId)
+    if (!match) {
+      throw new Error('Unknown installed skill path')
+    }
     const markdown = (await readLocalSkillMd(path)) ?? ''
     const { frontmatter, body } = parseFrontmatter(markdown)
     const meta = await readMetadata(path)
@@ -351,7 +358,13 @@ export class SkillsService {
 
     if (remaining.length === 0) {
       // User removed the last remaining agent — remove the skill entirely.
-      await runSkillsCli(['rm', skillId, '-g', '-y'])
+      const finalResult = await runSkillsCli(['rm', skillId, '-g', '-y'])
+      if (finalResult.code !== 0) {
+        const detail = stripAnsi(finalResult.stderr || finalResult.stdout)
+          .trim()
+          .slice(-400)
+        throw new Error(`skills rm failed: ${detail}`)
+      }
       this.broadcast({ type: 'skill:uninstalled', skillId })
       return
     }

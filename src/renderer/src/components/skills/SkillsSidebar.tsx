@@ -22,6 +22,7 @@ interface SkillsSidebarProps {
   onSelectListing: (listing: SkillListing) => void
   onRefreshInstalled: () => void
   refreshing: boolean
+  installedError: string | null
 }
 
 function formatInstalls(count: number): string {
@@ -45,7 +46,8 @@ export function SkillsSidebar({
   onSelectInstalled,
   onSelectListing,
   onRefreshInstalled,
-  refreshing
+  refreshing,
+  installedError
 }: SkillsSidebarProps): React.JSX.Element {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -150,7 +152,11 @@ export function SkillsSidebar({
       <ScrollArea className="min-h-0 flex-1">
         <div className="px-2 py-2">
           {activeTab === 'installed' ? (
-            installed.length === 0 ? (
+            installedError ? (
+              <div className="px-3 py-6 text-center text-xs text-destructive">
+                {installedError}
+              </div>
+            ) : installed.length === 0 ? (
               <div className="px-3 py-6 text-center text-xs text-muted-foreground">
                 No skills installed yet. Switch to Browse to find some.
               </div>

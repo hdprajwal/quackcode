@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Download, Loader2, Package, Trash2 } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
 import { ScrollArea } from '@renderer/components/ui/scroll-area'
@@ -56,6 +56,23 @@ export function SkillDetails({
   }
 
   const selectableAgents = SUPPORTED_AGENTS.filter((agent) => !installedAgents.has(agent.id))
+
+  // After install/uninstall, the installed agent set changes. Drop any
+  // now-installed ids from the pending selection, and if nothing is selectable
+  // anymore, fall back to defaults so the CTA count doesn't go stale.
+  useEffect(() => {
+    setSelectedAgents((prev) => {
+      const pruned = new Set<string>()
+      for (const id of prev) {
+        if (!installedAgents.has(id)) pruned.add(id)
+      }
+      if (pruned.size > 0) return pruned
+      const defaults = SUPPORTED_AGENTS.filter(
+        (agent) => agent.default && !installedAgents.has(agent.id)
+      ).map((agent) => agent.id)
+      return new Set(defaults.length > 0 ? defaults : ['claude-code'])
+    })
+  }, [installedAgents])
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">

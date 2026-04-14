@@ -78,16 +78,19 @@ function WorkingIndicatorComponent({
 
   return (
     <div
-      aria-live="polite"
+      role="status"
       className={cn('flex items-center gap-2 text-sm text-muted-foreground', className)}
     >
-      <span className="inline-flex items-center gap-1">
+      <span aria-hidden="true" className="inline-flex items-center gap-1">
         <span className="size-1.5 rounded-full bg-muted-foreground/40 animate-pulse" />
         <span className="size-1.5 rounded-full bg-muted-foreground/40 animate-pulse [animation-delay:200ms]" />
         <span className="size-1.5 rounded-full bg-muted-foreground/40 animate-pulse [animation-delay:400ms]" />
       </span>
-      <Shimmer className="text-sm">{`${verb}…`}</Shimmer>
-      <span className="text-xs tabular-nums text-muted-foreground/60">({elapsed})</span>
+      <Shimmer aria-hidden="true" className="text-sm">{`${verb}…`}</Shimmer>
+      <span aria-hidden="true" className="text-xs tabular-nums text-muted-foreground/60">
+        ({elapsed})
+      </span>
+      <span className="sr-only">Assistant is working</span>
     </div>
   )
 }

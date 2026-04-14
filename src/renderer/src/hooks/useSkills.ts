@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { invoke, on } from '@renderer/lib/ipc'
 import { useSkillsStore } from '@renderer/stores/skills.store'
 import type {
@@ -44,8 +44,11 @@ export function useSkills(): {
     setInstalled(skills)
   }, [setInstalled])
 
+  const latestSearchIdRef = useRef(0)
+
   const search = useCallback(
     async (query: string) => {
+      const requestId = ++latestSearchIdRef.current
       const trimmed = query.trim()
       if (trimmed.length < 2) {
         setSearchResults([])
@@ -57,12 +60,14 @@ export function useSkills(): {
       setSearchError(null)
       try {
         const results = await invoke<SkillListing[]>('skills:search', { query: trimmed })
+        if (requestId !== latestSearchIdRef.current) return
         setSearchResults(results)
       } catch (error) {
+        if (requestId !== latestSearchIdRef.current) return
         setSearchResults([])
         setSearchError(error instanceof Error ? error.message : 'Failed to search skills.')
       } finally {
-        setSearching(false)
+        if (requestId === latestSearchIdRef.current) setSearching(false)
       }
     },
     [setSearchResults, setSearching, setSearchError]

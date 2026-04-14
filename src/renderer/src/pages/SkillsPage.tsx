@@ -37,15 +37,25 @@ export function SkillsPanel(): React.JSX.Element {
   const [detailsError, setDetailsError] = useState<string | null>(null)
   const [working, setWorking] = useState(false)
   const [refreshingInstalled, setRefreshingInstalled] = useState(false)
+  const [installedError, setInstalledError] = useState<string | null>(null)
 
   useEffect(() => {
-    void loadInstalled()
+    loadInstalled().catch((error) => {
+      setInstalledError(
+        error instanceof Error ? error.message : 'Failed to load installed skills.'
+      )
+    })
   }, [loadInstalled])
 
   const handleRefreshInstalled = async (): Promise<void> => {
     setRefreshingInstalled(true)
+    setInstalledError(null)
     try {
       await loadInstalled()
+    } catch (error) {
+      setInstalledError(
+        error instanceof Error ? error.message : 'Failed to load installed skills.'
+      )
     } finally {
       setRefreshingInstalled(false)
     }
@@ -94,15 +104,15 @@ export function SkillsPanel(): React.JSX.Element {
   useEffect(() => {
     let cancelled = false
 
+    // Clear previous payload synchronously so resolveInstallSource() and the
+    // details view don't read stale data while the new fetch is in flight.
+    setDetails(null)
+    setDetailsError(null)
+
     async function loadDetails(): Promise<void> {
-      if (!selection) {
-        setDetails(null)
-        setDetailsError(null)
-        return
-      }
+      if (!selection) return
 
       setDetailsLoading(true)
-      setDetailsError(null)
       try {
         const fetched =
           selection.kind === 'listing'
@@ -244,6 +254,7 @@ export function SkillsPanel(): React.JSX.Element {
           onSelectListing={handleSelectListing}
           onRefreshInstalled={() => void handleRefreshInstalled()}
           refreshing={refreshingInstalled}
+          installedError={installedError}
         />
 
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
