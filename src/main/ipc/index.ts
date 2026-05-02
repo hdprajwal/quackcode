@@ -6,6 +6,7 @@ import { registerThreadIpc } from './thread.ipc'
 import { registerAiIpc } from './ai.ipc'
 import { registerEditorIpc } from './editor.ipc'
 import { registerAutomationIpc } from './automation.ipc'
+import { registerSkillsIpc } from './skills.ipc'
 
 export function registerAllIpc(): void {
   registerSettingsIpc()
@@ -16,4 +17,5 @@ export function registerAllIpc(): void {
   registerAiIpc()
   registerEditorIpc()
   registerAutomationIpc()
+  registerSkillsIpc()
 }

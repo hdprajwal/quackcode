@@ -4,11 +4,12 @@ import {
   useThreadStore,
   selectMessagesForThread,
   selectPendingForThread,
-  selectIsStreamingForThread
+  selectIsStreamingForThread,
+  selectStreamingStartedAtForThread
 } from '@renderer/stores/thread.store'
 import { useConversation } from '@renderer/components/ai-elements/conversation'
 import { ToolCallMessage } from './ToolCallMessage'
-import { Shimmer } from '@renderer/components/ai-elements/shimmer'
+import { WorkingIndicator } from './WorkingIndicator'
 import { Message, MessageContent, MessageResponse } from '@renderer/components/ai-elements/message'
 import { isNearBottom } from '@renderer/lib/chat-scroll'
 import type { Message as ChatMessage, ToolCall, ToolResult } from '@shared/types'
@@ -27,7 +28,7 @@ type Row =
       toolResults: ToolResult[]
       toolCallBuffers: Record<string, string>
     }
-  | { kind: 'thinking'; key: string }
+  | { kind: 'working'; key: string; startedAt: number }
 
 function MessageRow({ msg }: { msg: ChatMessage }): React.JSX.Element | null {
   if (msg.role === 'user') {
@@ -101,9 +102,14 @@ export function MessageList(): React.JSX.Element {
     () => selectIsStreamingForThread(activeThreadId),
     [activeThreadId]
   )
+  const startedAtSelector = useMemo(
+    () => selectStreamingStartedAtForThread(activeThreadId),
+    [activeThreadId]
+  )
   const messages = useThreadStore(messagesSelector) as ChatMessage[]
   const pendingMessage = useThreadStore(pendingSelector)
   const isStreaming = useThreadStore(streamingSelector)
+  const streamingStartedAt = useThreadStore(startedAtSelector)
 
   const { scrollRef } = useConversation()
 
@@ -145,14 +151,15 @@ export function MessageList(): React.JSX.Element {
         toolCallBuffers: pendingMessage.toolCallBuffers
       })
     }
-    const showThinking =
-      isStreaming &&
-      (!pendingMessage || (!pendingMessage.content && pendingMessage.toolCalls.length === 0))
-    if (showThinking) {
-      out.push({ kind: 'thinking', key: 'thinking' })
+    if (isStreaming) {
+      out.push({
+        kind: 'working',
+        key: 'working',
+        startedAt: streamingStartedAt ?? Date.now()
+      })
     }
     return out
-  }, [messages, pendingMessage, isStreaming])
+  }, [messages, pendingMessage, isStreaming, streamingStartedAt])
 
   // Always keep the last N rows out of the virtualizer so the streaming tail never unmounts.
   const tailStart = Math.max(rows.length - ALWAYS_UNVIRTUALIZED_TAIL, 0)
@@ -263,11 +270,9 @@ export function MessageList(): React.JSX.Element {
       )
     }
     return (
-      <Message from="assistant">
-        <MessageContent>
-          <Shimmer className="text-sm">Thinking...</Shimmer>
-        </MessageContent>
-      </Message>
+      <div className="px-1">
+        <WorkingIndicator startedAt={row.startedAt} />
+      </div>
     )
   }, [])
 

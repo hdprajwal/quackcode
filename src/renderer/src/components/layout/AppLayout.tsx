@@ -3,6 +3,7 @@ import { TopBar } from './TopBar'
 import { BottomBar } from './BottomBar'
 import { ChatArea } from '@renderer/components/chat/ChatArea'
 import { AutomationsPanel } from '@renderer/pages/AutomationsPage'
+import { SkillsPanel } from '@renderer/pages/SkillsPage'
 import { useUIStore } from '@renderer/stores/ui.store'
 
 export function AppLayout(): React.JSX.Element {
@@ -18,8 +19,10 @@ export function AppLayout(): React.JSX.Element {
             <ChatArea />
             <BottomBar />
           </>
-        ) : (
+        ) : activeView === 'automations' ? (
           <AutomationsPanel />
+        ) : (
+          <SkillsPanel />
         )}
       </div>
     </div>

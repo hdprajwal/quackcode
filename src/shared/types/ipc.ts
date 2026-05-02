@@ -26,6 +26,15 @@ import type {
   CreateAutomationParams,
   UpdateAutomationParams
 } from './automation'
+import type {
+  SkillListing,
+  SkillDetails,
+  InstalledSkill,
+  SkillInstallParams,
+  SkillUninstallParams,
+  SkillSearchParams,
+  SkillEvent
+} from './skills'
 
 // Invoke channels (renderer -> main, returns a value)
 export interface InvokeChannels {
@@ -103,12 +112,21 @@ export interface InvokeChannels {
   'automation:delete': (automationId: string) => void
   'automation:execute': (automationId: string) => AutomationExecution
   'automation:executions': (automationId: string) => AutomationExecution[]
+
+  // Skills
+  'skills:listInstalled': () => InstalledSkill[]
+  'skills:search': (params: SkillSearchParams) => SkillListing[]
+  'skills:details': (params: { source: string; skillId: string }) => SkillDetails
+  'skills:localDetails': (params: { path: string; skillId: string }) => SkillDetails
+  'skills:install': (params: SkillInstallParams) => InstalledSkill
+  'skills:uninstall': (params: SkillUninstallParams) => void
 }
 
 // Push channels (main -> renderer)
 export interface PushChannels {
   'ai:stream': StreamChunk
   'automation:event': AutomationEvent
+  'skills:event': SkillEvent
   'thread:update': Thread
   'thread-event:new': ThreadEventNotification
 }

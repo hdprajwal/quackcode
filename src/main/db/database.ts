@@ -109,13 +109,13 @@ function runMigrations(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS automation_executions (
       id TEXT PRIMARY KEY,
       automation_id TEXT NOT NULL,
-      thread_id TEXT NOT NULL,
+      thread_id TEXT,
       status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'completed', 'failed')),
       error TEXT,
       started_at TEXT NOT NULL DEFAULT (datetime('now')),
       completed_at TEXT,
       FOREIGN KEY (automation_id) REFERENCES automations(id) ON DELETE CASCADE,
-      FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
+      FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE SET NULL
     );
   `)
 

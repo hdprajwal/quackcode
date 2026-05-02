@@ -13,6 +13,7 @@ import {
   ClipboardCopy,
   Clock,
   FolderPlus,
+  Package,
   Settings,
   SquarePen,
   Trash2
@@ -243,6 +244,18 @@ export function Sidebar(): React.JSX.Element {
                     >
                       <Clock className="h-4 w-4" />
                       <span>Automations</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      isActive={activeView === 'skills'}
+                      onClick={() => {
+                        navigate({ to: '/' })
+                        setActiveView(activeView === 'skills' ? 'chat' : 'skills')
+                      }}
+                    >
+                      <Package className="h-4 w-4" />
+                      <span>Skills</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 </SidebarMenu>

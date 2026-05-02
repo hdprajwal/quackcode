@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type ActiveView = 'chat' | 'automations'
+export type ActiveView = 'chat' | 'automations' | 'skills'
 
 interface UIStore {
   sidebarOpen: boolean
